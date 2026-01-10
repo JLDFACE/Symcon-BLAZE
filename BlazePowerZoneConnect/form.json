@@ -1,6 +1,27 @@
 {
   "elements": [
     {
+      "type": "Label",
+      "caption": "Verbindung: Das Device erzwingt automatisch einen Client Socket als Parent (ForceParent) und setzt Host/Port/Open."
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "Host",
+      "caption": "Host / IP"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Port",
+      "caption": "Port",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    {
+      "type": "CheckBox",
+      "name": "Open",
+      "caption": "Socket öffnen"
+    },
+    {
       "type": "CheckBox",
       "name": "EnableSubscribe",
       "caption": "Subscribe (Push) aktiv"
@@ -57,17 +78,17 @@
         {
           "type": "CheckBox",
           "name": "IncludeSPDIF",
-          "caption": "SPDIF Inputs ber\u00fccksichtigen"
+          "caption": "SPDIF Inputs berücksichtigen"
         },
         {
           "type": "CheckBox",
           "name": "IncludeDante",
-          "caption": "Dante Inputs ber\u00fccksichtigen"
+          "caption": "Dante Inputs berücksichtigen"
         },
         {
           "type": "CheckBox",
           "name": "IncludeNoise",
-          "caption": "Noise Generator ber\u00fccksichtigen"
+          "caption": "Noise Generator berücksichtigen"
         }
       ]
     },
@@ -111,10 +132,6 @@
       "type": "Button",
       "caption": "Poll jetzt",
       "onClick": "BLAZE_Poll($id);"
-    },
-    {
-      "type": "Label",
-      "caption": "Hinweis: Host/Port werden im Parent (Client Socket) konfiguriert (Configurator legt das an)."
     }
   ]
 }

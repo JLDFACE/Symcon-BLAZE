@@ -64,50 +64,44 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
 
     private function BuildRow($ip, $port, $model)
 {
-    $deviceModuleID       = '{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}';
-    $clientSocketModuleID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}';
-
-    // Create-Kette MUSS Child -> Parent sein:
-    // 1) Device (Child)
-    // 2) Client Socket (Parent)
-    $createChain = array(
-        array(
-            'moduleID' => $deviceModuleID,
-            'configuration' => array(
-                'EnableSubscribe' => true,
-                'SubscribeFreq' => '0.5',
-                'EnableZoneMute' => true,
-                'EnableMetering' => false,
-                'MeteringFreq' => '5.0',
-                'MeteringRegex' => '^ZONE-[A-H]\\.(LEVEL|METER|VU|RMS|PEAK)',
-                'MeteringMin' => -80,
-                'MeteringMax' => 0,
-                'IncludeSPDIF' => false,
-                'IncludeDante' => true,
-                'IncludeNoise' => true,
-                'PollSlow' => 15,
-                'PollFast' => 5,
-                'FastAfterChange' => 30
-            )
-        ),
-        array(
-            'moduleID' => $clientSocketModuleID,
-            'configuration' => array(
-                'Host' => $ip,
-                'Port' => $port,
-                'Open' => true
-            )
-        )
-    );
+    $deviceModuleID = '{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}';
 
     return array(
         'address' => $ip,
         'model' => $model,
         'info' => 'TCP/' . $port,
         'instanceID' => 0,
-        'create' => $createChain
+        'create' => array(
+            array(
+                'moduleID' => $deviceModuleID,
+                'configuration' => array(
+                    'Host' => $ip,
+                    'Port' => $port,
+                    'Open' => true,
+
+                    'EnableSubscribe' => true,
+                    'SubscribeFreq' => '0.5',
+                    'EnableZoneMute' => true,
+
+                    'EnableMetering' => false,
+                    'MeteringFreq' => '5.0',
+                    'MeteringRegex' => '^ZONE-[A-H]\\.(LEVEL|METER|VU|RMS|PEAK)',
+                    'MeteringMin' => -80,
+                    'MeteringMax' => 0,
+
+                    'IncludeSPDIF' => false,
+                    'IncludeDante' => true,
+                    'IncludeNoise' => true,
+
+                    'PollSlow' => 15,
+                    'PollFast' => 5,
+                    'FastAfterChange' => 30
+                )
+            )
+        )
     );
 }
+
 
 
     private function ProbeDevice($ip, $port)

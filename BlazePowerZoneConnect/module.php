@@ -5,6 +5,11 @@ class BlazePowerZoneConnect extends IPSModule
     {
         parent::Create();
 
+        // Verbindung (wird im Parent Client Socket gesetzt, aber hier konfiguriert)
+        $this->RegisterPropertyString('Host', '');
+        $this->RegisterPropertyInteger('Port', 7621);
+        $this->RegisterPropertyBoolean('Open', true);
+
         // Subscribe / Push (als String für maximale Kompatibilität)
         $this->RegisterPropertyBoolean('EnableSubscribe', true);
         $this->RegisterPropertyString('SubscribeFreq', '0.5');
@@ -65,36 +70,12 @@ class BlazePowerZoneConnect extends IPSModule
 
         $this->CreateOrUpdateProfiles();
         $this->UpdateMeterProfile();
-
         $this->UpdatePollTimer();
 
-        // Parent Status-Änderungen
-        $parentID = $this->GetParentID();
-        if ($parentID > 0) {
-            $this->RegisterMessage($parentID, IM_CHANGESTATUS);
-        }
-
+        // Erzwinge Parent Client Socket + setze Host/Port/Open
         if (IPS_GetKernelRunlevel() == KR_READY) {
+            $this->EnsureParentSocket();
             $this->SetFastPolling(10);
-        }
-    }
-
-    public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
-    {
-        if ($Message == IM_CHANGESTATUS) {
-            $status = (int)$Data[0];
-            if ($status == 102) {
-                $this->SetValueBooleanSafe('Online', true);
-                $this->SetValueIntegerSafe('LastOKTimestamp', time());
-                $this->ClearErrorIfAny();
-
-                $this->Discover();
-                $this->Subscribe();
-
-                $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
-            } else {
-                $this->SetValueBooleanSafe('Online', false);
-            }
         }
     }
 
@@ -105,17 +86,10 @@ class BlazePowerZoneConnect extends IPSModule
 
         $this->UpdatePollTimer();
 
-        $top = $this->GetTopology();
-        if ($top == null) {
-            $this->Unlock();
-            $this->Discover();
-            return;
-        }
-
-        // minimal watchdog
         $this->SendCommand("GET SYSTEM.STATUS.STATE");
 
-        if (isset($top['zones']) && is_array($top['zones'])) {
+        $top = $this->GetTopology();
+        if ($top != null) {
             $this->SendCommand("GET ZONE-*.PRIMARY_SRC");
             $this->SendCommand("GET ZONE-*.GAIN");
             if ($this->ReadPropertyBoolean('EnableZoneMute')) {
@@ -276,6 +250,36 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
+    // ---------- Parent Socket Handling ----------
+    private function EnsureParentSocket()
+    {
+        $host = trim($this->ReadPropertyString('Host'));
+        $port = (int)$this->ReadPropertyInteger('Port');
+        $open = (bool)$this->ReadPropertyBoolean('Open');
+
+        if ($host === '' || $port <= 0) {
+            // noch nicht konfiguriert
+            return;
+        }
+
+        // ForceParent: erstellt/verknüpft einen passenden Parent anhand MODULE-ID (Client Socket)
+        // (Konservativ, verfügbar für IPSModule – nicht für IPSModuleStrict)
+        $this->ForceParent('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}');
+
+        $parentID = $this->GetParentID();
+        if ($parentID <= 0) return;
+
+        // Parent konfigurieren
+        @IPS_SetProperty($parentID, 'Host', $host);
+        @IPS_SetProperty($parentID, 'Port', $port);
+        @IPS_SetProperty($parentID, 'Open', $open);
+
+        @IPS_ApplyChanges($parentID);
+
+        // Parent Status-Änderungen abonnieren
+        $this->RegisterMessage($parentID, IM_CHANGESTATUS);
+    }
+
     // ---------- Receive ----------
     public function ReceiveData($JSONString)
     {
@@ -358,16 +362,6 @@ class BlazePowerZoneConnect extends IPSModule
             return;
         }
 
-        if (preg_match('/^ZONE\-([A-H])\.NAME$/', $reg, $m)) {
-            $this->UpdateZoneName($m[1], (string)$val);
-            return;
-        }
-
-        if (preg_match('/^IN\-([0-9]+)\.NAME$/', $reg, $m)) {
-            $this->UpdateSourceName((int)$m[1], (string)$val);
-            return;
-        }
-
         if (preg_match('/^ZONE\-([A-H])\.PRIMARY_SRC$/', $reg, $m)) {
             $z = $m[1];
             $pending = $this->GetPending();
@@ -415,7 +409,6 @@ class BlazePowerZoneConnect extends IPSModule
     private function ApplyMeterRegister($reg, $val)
     {
         $meterCat = $this->CreateCategoryByIdent('Metering', 'Metering', 50, $this->InstanceID);
-
         $ident = 'MTR_' . $this->SanitizeIdent($reg);
 
         $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
@@ -515,40 +508,6 @@ class BlazePowerZoneConnect extends IPSModule
                 $this->MaintainVariable('ZONE_' . $z . '_Mute', '', VARIABLETYPE_BOOLEAN, '', 0, false);
             }
         }
-    }
-
-    private function UpdateZoneName($z, $name)
-    {
-        $top = $this->GetTopology();
-        if ($top == null) return;
-
-        if (!isset($top['zoneNames']) || !is_array($top['zoneNames'])) $top['zoneNames'] = array();
-        $top['zoneNames'][$z] = $name;
-
-        $this->SetBuffer('Topology', json_encode($top));
-
-        $zonesCat = @IPS_GetObjectIDByIdent('Zones', $this->InstanceID);
-        if ($zonesCat <= 0) return;
-
-        $zoneCatIdent = 'ZONECAT_' . $z;
-        $catID = @IPS_GetObjectIDByIdent($zoneCatIdent, $zonesCat);
-        if ($catID > 0) {
-            $newName = 'Zone ' . $z;
-            if ($name !== '') $newName .= ' (' . $name . ')';
-            @IPS_SetName($catID, $newName);
-        }
-    }
-
-    private function UpdateSourceName($id, $name)
-    {
-        $top = $this->GetTopology();
-        if ($top == null) return;
-
-        if (!isset($top['sourceNames']) || !is_array($top['sourceNames'])) $top['sourceNames'] = array();
-        $top['sourceNames'][$id] = $name;
-
-        $this->SetBuffer('Topology', json_encode($top));
-        $this->UpdateSourceProfileAssociations();
     }
 
     // ---------- Profiles ----------
