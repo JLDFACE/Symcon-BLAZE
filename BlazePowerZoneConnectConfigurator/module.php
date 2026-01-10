@@ -28,11 +28,13 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
         if (!isset($form['actions']) || !is_array($form['actions'])) $form['actions'] = array();
 
         for ($i = 0; $i < count($form['actions']); $i++) {
-            if (isset($form['actions'][$i]['type']) && $form['actions'][$i]['type'] == 'Configurator' && isset($form['actions'][$i]['name']) && $form['actions'][$i]['name'] == 'Devices') {
+            if (isset($form['actions'][$i]['type']) && $form['actions'][$i]['type'] == 'Configurator'
+                && isset($form['actions'][$i]['name']) && $form['actions'][$i]['name'] == 'Devices') {
+
                 $form['actions'][$i]['columns'] = array(
-                    array('caption' => 'IP', 'name' => 'address', 'width' => '140px'),
-                    array('caption' => 'Model', 'name' => 'model', 'width' => '220px'),
-                    array('caption' => 'Info', 'name' => 'info', 'width' => 'auto')
+                    array('caption' => 'IP',    'name' => 'address', 'width' => '140px'),
+                    array('caption' => 'Model', 'name' => 'model',   'width' => '220px'),
+                    array('caption' => 'Info',  'name' => 'info',    'width' => 'auto')
                 );
                 $form['actions'][$i]['values'] = $values;
             }
@@ -44,7 +46,7 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
     public function Scan()
     {
         $subnet = trim($this->ReadPropertyString('ScanSubnet'));
-        $port = (int)$this->ReadPropertyInteger('Port');
+        $port   = (int)$this->ReadPropertyInteger('Port');
 
         $ips = $this->ExpandCIDR($subnet, 2048);
         $found = array();
@@ -62,19 +64,13 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
 
     private function BuildRow($ip, $port, $model)
     {
-        $deviceModuleID = '{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}';
+        $deviceModuleID      = '{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}';
         $clientSocketModuleID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}';
 
-        // Create-Kette immer von Parent -> Child (verhindert "Datenfluss inkompatibel")
+        // WICHTIG: Create-Kette MUSS Child -> Parent sein:
+        // 1) Device (Child)
+        // 2) Client Socket (Parent)
         $createChain = array(
-            array(
-                'moduleID' => $clientSocketModuleID,
-                'configuration' => array(
-                    'Host' => $ip,
-                    'Port' => $port,
-                    'Open' => true
-                )
-            ),
             array(
                 'moduleID' => $deviceModuleID,
                 'configuration' => array(
@@ -92,6 +88,14 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
                     'PollSlow' => 15,
                     'PollFast' => 5,
                     'FastAfterChange' => 30
+                )
+            ),
+            array(
+                'moduleID' => $clientSocketModuleID,
+                'configuration' => array(
+                    'Host' => $ip,
+                    'Port' => $port,
+                    'Open' => true
                 )
             )
         );
@@ -121,7 +125,6 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
         if (!$ok1) return array('ok' => false);
 
         if ($model === null || trim($model) === '') {
-            // fallback: trotzdem aufnehmen, aber mit generischem Model
             $model = 'PowerZone Connect';
         }
 
@@ -172,6 +175,7 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
             $line = trim($line);
             if ($line === '') continue;
             if ($line[0] == '#') return null;
+
             if (strpos($line, $prefix) === 0) {
                 $raw = trim(substr($line, strlen($prefix)));
                 if (strlen($raw) >= 2 && $raw[0] == '"' && substr($raw, -1) == '"') {
