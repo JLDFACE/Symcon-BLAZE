@@ -65,8 +65,16 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
         $deviceModuleID = '{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}';
         $clientSocketModuleID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}';
 
-        // create chain: Child (Device) + Parent (Client Socket)
+        // Create-Kette immer von Parent -> Child (verhindert "Datenfluss inkompatibel")
         $createChain = array(
+            array(
+                'moduleID' => $clientSocketModuleID,
+                'configuration' => array(
+                    'Host' => $ip,
+                    'Port' => $port,
+                    'Open' => true
+                )
+            ),
             array(
                 'moduleID' => $deviceModuleID,
                 'configuration' => array(
@@ -75,7 +83,7 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
                     'EnableZoneMute' => true,
                     'EnableMetering' => false,
                     'MeteringFreq' => '5.0',
-                    'MeteringRegex' => '^ZONE-[A-H]\.(LEVEL|METER|VU|RMS|PEAK)',
+                    'MeteringRegex' => '^ZONE-[A-H]\\.(LEVEL|METER|VU|RMS|PEAK)',
                     'MeteringMin' => -80,
                     'MeteringMax' => 0,
                     'IncludeSPDIF' => false,
@@ -84,14 +92,6 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
                     'PollSlow' => 15,
                     'PollFast' => 5,
                     'FastAfterChange' => 30
-                )
-            ),
-            array(
-                'moduleID' => $clientSocketModuleID,
-                'configuration' => array(
-                    'Host' => $ip,
-                    'Port' => $port,
-                    'Open' => true
                 )
             )
         );
@@ -105,7 +105,7 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
         );
     }
 
-    private function ProbeDevice($ip, $port)
+    private function ProbeDevice($ip, $port)($ip, $port)
     {
         $timeout = 0.12;
         $fp = @fsockopen($ip, $port, $errno, $errstr, $timeout);
