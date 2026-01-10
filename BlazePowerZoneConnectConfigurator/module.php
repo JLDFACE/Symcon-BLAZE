@@ -105,7 +105,7 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
         );
     }
 
-    private function ProbeDevice($ip, $port)($ip, $port)
+    private function ProbeDevice($ip, $port)
     {
         $timeout = 0.12;
         $fp = @fsockopen($ip, $port, $errno, $errstr, $timeout);
