@@ -1,0 +1,31 @@
+{
+  "id": "{8F7A7E8C-5E6B-4D78-9F6F-59A5E113C9F0}",
+  "author": "Community",
+  "name": "Blaze PowerZone Connect",
+  "url": "https://github.com/<USER>/<REPO>",
+  "version": "1.1",
+  "build": 110,
+  "date": 20260110,
+  "modules": [
+    {
+      "id": "{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}",
+      "name": "Blaze PowerZone Connect",
+      "type": 3,
+      "vendor": "Blaze Audio",
+      "aliases": [
+        "PowerZone Connect (Push)"
+      ],
+      "url": "https://github.com/<USER>/<REPO>"
+    },
+    {
+      "id": "{F5F3B1E9-1B40-4A12-9D9A-3B9F109A1B75}",
+      "name": "Blaze PowerZone Connect Configurator",
+      "type": 4,
+      "vendor": "Blaze Audio",
+      "aliases": [
+        "PowerZone Connect Configurator"
+      ],
+      "url": "https://github.com/<USER>/<REPO>"
+    }
+  ]
+}

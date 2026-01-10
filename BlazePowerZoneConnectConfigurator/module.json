@@ -1,0 +1,13 @@
+{
+  "id": "{F5F3B1E9-1B40-4A12-9D9A-3B9F109A1B75}",
+  "name": "Blaze PowerZone Connect Configurator",
+  "type": 4,
+  "vendor": "Blaze Audio",
+  "aliases": [
+    "PowerZone Connect Configurator"
+  ],
+  "parentRequirements": [],
+  "childRequirements": [],
+  "implemented": [],
+  "prefix": "BLAZECONF"
+}

@@ -1,0 +1,120 @@
+{
+  "elements": [
+    {
+      "type": "CheckBox",
+      "name": "EnableSubscribe",
+      "caption": "Subscribe (Push) aktiv"
+    },
+    {
+      "type": "ValidationTextBox",
+      "name": "SubscribeFreq",
+      "caption": "Subscribe-Frequenz REG (Text, z. B. 0.5)"
+    },
+    {
+      "type": "CheckBox",
+      "name": "EnableZoneMute",
+      "caption": "Zone Mute aktivieren (Pflicht)"
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Metering (DYN Push)",
+      "items": [
+        {
+          "type": "CheckBox",
+          "name": "EnableMetering",
+          "caption": "Metering via SUBSCRIBE DYN aktivieren"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "MeteringFreq",
+          "caption": "Metering-Frequenz DYN (Text, z. B. 5.0)"
+        },
+        {
+          "type": "ValidationTextBox",
+          "name": "MeteringRegex",
+          "caption": "Meter-Register Regex (welche DYN Register als Variablen angelegt werden)"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "MeteringMin",
+          "caption": "Metering Minimum (Profil) z. B. -80",
+          "minimum": -200,
+          "maximum": 0
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "MeteringMax",
+          "caption": "Metering Maximum (Profil) z. B. 0",
+          "minimum": -200,
+          "maximum": 50
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Input-Filter",
+      "items": [
+        {
+          "type": "CheckBox",
+          "name": "IncludeSPDIF",
+          "caption": "SPDIF Inputs ber\u00fccksichtigen"
+        },
+        {
+          "type": "CheckBox",
+          "name": "IncludeDante",
+          "caption": "Dante Inputs ber\u00fccksichtigen"
+        },
+        {
+          "type": "CheckBox",
+          "name": "IncludeNoise",
+          "caption": "Noise Generator ber\u00fccksichtigen"
+        }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
+      "caption": "Polling/Watchdog",
+      "items": [
+        {
+          "type": "NumberSpinner",
+          "name": "PollSlow",
+          "caption": "PollSlow (Sek.)",
+          "minimum": 5
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "PollFast",
+          "caption": "PollFast (Sek.)",
+          "minimum": 2
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "FastAfterChange",
+          "caption": "FastAfterChange (Sek.)",
+          "minimum": 0
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Discover jetzt",
+      "onClick": "BLAZE_Discover($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Resubscribe jetzt",
+      "onClick": "BLAZE_Subscribe($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Poll jetzt",
+      "onClick": "BLAZE_Poll($id);"
+    },
+    {
+      "type": "Label",
+      "caption": "Hinweis: Host/Port werden im Parent (Client Socket) konfiguriert (Configurator legt das an)."
+    }
+  ]
+}

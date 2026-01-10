@@ -1,0 +1,30 @@
+{
+  "elements": [
+    {
+      "type": "ValidationTextBox",
+      "name": "ScanSubnet",
+      "caption": "Scan Subnetz (CIDR, z. B. 192.168.1.0/24)"
+    },
+    {
+      "type": "NumberSpinner",
+      "name": "Port",
+      "caption": "Port",
+      "minimum": 1,
+      "maximum": 65535
+    }
+  ],
+  "actions": [
+    {
+      "type": "Button",
+      "caption": "Scan",
+      "onClick": "BLAZECONF_Scan($id);"
+    },
+    {
+      "type": "Configurator",
+      "name": "Devices",
+      "caption": "Gefundene Ger\u00e4te",
+      "delete": true,
+      "values": []
+    }
+  ]
+}
