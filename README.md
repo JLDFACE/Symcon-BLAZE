@@ -7,43 +7,29 @@ Dieses Repository enthält zwei Module:
 
 ## Architektur / Datenfluss
 
-- **Configurator** scannt IPs im Subnetz auf **TCP/7621** und legt beim Erstellen eine Kette an:
-  - **Client Socket** (Host/Port/Open)
-  - **Device** als Child des Client Socket
-- **Device** nutzt den Parent (Client Socket) für ASCII-Kommandos:
-  - `SUBSCRIBE REG <freq>` für Register-Updates (Push)
-  - optional `SUBSCRIBE DYN <freq>` für Metering (Push)
-  - Watchdog-Polling (Slow/Fast) bleibt aktiv, ist aber nicht der Primärpfad.
+### Ziel
+Push/Subscribe statt Polling, aber mit Watchdog-Polling als Fallback.
 
-## Features (Device)
+### Instanzen
+- **Configurator** scannt IPs im Subnetz auf **TCP/7621** und erstellt eine Device-Instanz.
+- **Device** ist **ohne IO in der Konfiguration** nutzbar:
+  - Device erstellt/verwaltet **automatisch** einen **Client Socket** als Parent
+  - Host/Port/Open werden im Device konfiguriert und in den Parent übertragen
+  - Device sendet ASCII-Befehle über `SendDataToParent()` an den Client Socket.
 
-- **Power** (Boolean schaltbar) + **PowerState** (String)
-- Pro Zone:
-  - **Gain** (dB, Float)
-  - **Source** (Dropdown, Integer; Names via Input-Namen)
-  - **Mute** (Boolean, Pflicht)
-- Optional: **Metering** (DYN) → dynamische Variablen unter Kategorie „Metering“ (Regex-Filter)
-- **Stabile UI**: Pending-Source bleibt bis Istwert erreicht ist
-- **Diagnose**: Online, LastError, LastOKTimestamp, ErrorCounter
-- **Konservativ/SymBox-sicher**: keine PHP8-Typen, kein strict_types, keine UI-Refresh-APIs
+### Push/Subscribe
+- `SUBSCRIBE REG <freq>`
+- optional `SUBSCRIBE DYN <freq>` für Metering
+
+Hinweis: IPS View hat kein natives VU-Meter-Widget. Praktisch sind Diagramme/Gauges über Profile.
 
 ## Installation
+1. Repository in Module Control hinzufügen, aktualisieren.
+2. **Discovery Instanz**: „Blaze PowerZone Connect Configurator“ erstellen.
+3. Subnetz setzen, „Scan“.
+4. Gerät über „Erstellen“ anlegen.
+5. Im Device prüfen: Host/Port/Open stimmen. Danach „Discover“/„Subscribe“.
 
-1. Repository in **Module Control** hinzufügen.
-2. Module aktualisieren.
-3. Unter **Discovery Instanzen**: **Blaze PowerZone Connect Configurator** anlegen.
-4. Subnetz setzen (z. B. `192.168.1.0/24`) und **Scan**.
-5. Gerät(e) über **Erstellen** anlegen.
-
-Hinweis: Nach „Scan“ kann es nötig sein, das Konfigurationsformular kurz zu schließen und erneut zu öffnen (keine Live-Refresh-APIs).
-
-## Metering in IPS View
-
-IPS View hat kein natives VU-Meter-Widget. Praktisch:
-- **Diagramm** auf Meter-Variablen (Historie aktivieren)
-- **Gauge/Skala** über Profil Min/Max (im Modul konfigurierbar)
-- Optional später: HTMLBox VU (nicht Bestandteil dieses Moduls)
-
-## Changelog
-
-- 1.1: Konservative IO-Architektur (Device als Child des Client Socket), ScanResult als Attribute, keine Float-Properties.
+## Troubleshooting
+- Wenn ein Modul einmal defekt geladen wurde: Repo entfernen → SymBox 10–15s stromlos → Repo neu hinzufügen.
+- Wenn „Online“ false bleibt: Prüfen, ob TCP/7621 erreichbar ist (Firewall/VLAN).

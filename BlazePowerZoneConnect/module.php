@@ -5,7 +5,7 @@ class BlazePowerZoneConnect extends IPSModule
     {
         parent::Create();
 
-        // Verbindung (wird im Parent Client Socket gesetzt, aber hier konfiguriert)
+        // Verbindung (wird auf den Parent Client Socket übertragen)
         $this->RegisterPropertyString('Host', '');
         $this->RegisterPropertyInteger('Port', 7621);
         $this->RegisterPropertyBoolean('Open', true);
@@ -72,10 +72,27 @@ class BlazePowerZoneConnect extends IPSModule
         $this->UpdateMeterProfile();
         $this->UpdatePollTimer();
 
-        // Erzwinge Parent Client Socket + setze Host/Port/Open
         if (IPS_GetKernelRunlevel() == KR_READY) {
             $this->EnsureParentSocket();
             $this->SetFastPolling(10);
+        }
+    }
+
+    public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
+    {
+        if ($Message == IM_CHANGESTATUS) {
+            $status = (int)$Data[0];
+            if ($status == 102) {
+                $this->SetValueBooleanSafe('Online', true);
+                $this->SetValueIntegerSafe('LastOKTimestamp', time());
+                $this->ClearErrorIfAny();
+
+                $this->Discover();
+                $this->Subscribe();
+                $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
+            } else {
+                $this->SetValueBooleanSafe('Online', false);
+            }
         }
     }
 
@@ -86,6 +103,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         $this->UpdatePollTimer();
 
+        // minimal watchdog
         $this->SendCommand("GET SYSTEM.STATUS.STATE");
 
         $top = $this->GetTopology();
@@ -111,7 +129,7 @@ class BlazePowerZoneConnect extends IPSModule
             return;
         }
 
-        $cfg = json_decode(IPS_GetConfiguration($parentID), true);
+        $cfg = @json_decode(@IPS_GetConfiguration($parentID), true);
         if (!is_array($cfg) || !isset($cfg['Host']) || !isset($cfg['Port'])) {
             $this->SetError('Parent-Konfiguration (Host/Port) nicht lesbar');
             $this->Unlock();
@@ -250,7 +268,7 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
-    // ---------- Parent Socket Handling ----------
+    // ---------- Parent Socket Handling (robust, ohne ForceParent) ----------
     private function EnsureParentSocket()
     {
         $host = trim($this->ReadPropertyString('Host'));
@@ -258,25 +276,63 @@ class BlazePowerZoneConnect extends IPSModule
         $open = (bool)$this->ReadPropertyBoolean('Open');
 
         if ($host === '' || $port <= 0) {
-            // noch nicht konfiguriert
             return;
         }
 
-        // ForceParent: erstellt/verknüpft einen passenden Parent anhand MODULE-ID (Client Socket)
-        // (Konservativ, verfügbar für IPSModule – nicht für IPSModuleStrict)
-        $this->ForceParent('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}');
-
         $parentID = $this->GetParentID();
-        if ($parentID <= 0) return;
 
-        // Parent konfigurieren
-        @IPS_SetProperty($parentID, 'Host', $host);
-        @IPS_SetProperty($parentID, 'Port', $port);
-        @IPS_SetProperty($parentID, 'Open', $open);
+        // Prüfen: ist Parent ein Client Socket?
+        $isClientSocket = false;
+        if ($parentID > 0) {
+            $inst = @IPS_GetInstance($parentID);
+            if (is_array($inst) && isset($inst['ModuleInfo']) && isset($inst['ModuleInfo']['ModuleID'])) {
+                if (strtoupper($inst['ModuleInfo']['ModuleID']) == strtoupper('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}')) {
+                    $isClientSocket = true;
+                }
+            }
+        }
 
-        @IPS_ApplyChanges($parentID);
+        // Wenn kein ClientSocket verbunden ist: neu anlegen und verbinden
+        if (!$isClientSocket) {
+            $newID = @IPS_CreateInstance('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}');
+            if ($newID <= 0) {
+                $this->SetError('Client Socket konnte nicht erstellt werden');
+                return;
+            }
 
-        // Parent Status-Änderungen abonnieren
+            $myParent = (int)@IPS_GetParent($this->InstanceID);
+            if ($myParent > 0) @IPS_SetParent($newID, $myParent);
+
+            @IPS_SetName($newID, 'Blaze Client Socket');
+            @IPS_SetIdent($newID, 'BlazeClientSocket_' . $this->InstanceID);
+
+            @IPS_ConnectInstance($this->InstanceID, $newID);
+            $parentID = $newID;
+        }
+
+        // Parent konfigurieren (nur wenn nötig)
+        $cfg = @json_decode(@IPS_GetConfiguration($parentID), true);
+        if (!is_array($cfg)) $cfg = array();
+
+        $needApply = false;
+
+        if (!isset($cfg['Host']) || (string)$cfg['Host'] !== (string)$host) {
+            @IPS_SetProperty($parentID, 'Host', $host);
+            $needApply = true;
+        }
+        if (!isset($cfg['Port']) || (int)$cfg['Port'] !== (int)$port) {
+            @IPS_SetProperty($parentID, 'Port', $port);
+            $needApply = true;
+        }
+        if (!isset($cfg['Open']) || (bool)$cfg['Open'] !== (bool)$open) {
+            @IPS_SetProperty($parentID, 'Open', $open);
+            $needApply = true;
+        }
+
+        if ($needApply) {
+            @IPS_ApplyChanges($parentID);
+        }
+
         $this->RegisterMessage($parentID, IM_CHANGESTATUS);
     }
 
@@ -579,6 +635,19 @@ class BlazePowerZoneConnect extends IPSModule
     // ---------- Networking ----------
     private function SendCommand($cmd)
     {
+        $parentID = $this->GetParentID();
+        if ($parentID <= 0) {
+            return false;
+        }
+
+        // Guard: nur senden, wenn Parent wirklich "OK" ist
+        $st = @IPS_GetInstance($parentID);
+        if (is_array($st) && isset($st['InstanceStatus'])) {
+            if ((int)$st['InstanceStatus'] != 102) {
+                return false;
+            }
+        }
+
         $payload = array(
             'DataID'  => '{C8792760-65CF-4C53-B5C7-A30FCC84FEFE}',
             'Buffer'  => utf8_encode($cmd . "\n"),
@@ -593,9 +662,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         $timeout = 0.25;
         $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
-        if (!$fp) {
-            return array('ok' => false, 'registers' => array());
-        }
+        if (!$fp) return array('ok' => false, 'registers' => array());
 
         stream_set_timeout($fp, 0, 250000);
         fwrite($fp, $cmd . "\n");

@@ -2,7 +2,7 @@
   "elements": [
     {
       "type": "Label",
-      "caption": "Verbindung: Das Device erzwingt automatisch einen Client Socket als Parent (ForceParent) und setzt Host/Port/Open."
+      "caption": "Verbindung: Das Device erstellt automatisch einen Client Socket als Parent und setzt Host/Port/Open dort."
     },
     {
       "type": "ValidationTextBox",

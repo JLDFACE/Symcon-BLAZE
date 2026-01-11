@@ -1,10 +1,10 @@
 {
   "id": "{8F7A7E8C-5E6B-4D78-9F6F-59A5E113C9F0}",
-  "author": "Community",
+  "author": "FACE GmbH",
   "name": "Blaze PowerZone Connect",
-  "url": "https://github.com/<USER>/<REPO>",
-  "version": "1.1.1",
-  "build": 111,
+  "url": "https://github.com/JLDFACE/Symcon-BLAZE",
+  "version": "1.2.0",
+  "build": 120,
   "date": 20260110,
   "modules": [
     {
@@ -15,7 +15,7 @@
       "aliases": [
         "PowerZone Connect (Push)"
       ],
-      "url": "https://github.com/<USER>/<REPO>"
+      "url": "https://github.com/JLDFACE/Symcon-BLAZE"
     },
     {
       "id": "{F5F3B1E9-1B40-4A12-9D9A-3B9F109A1B75}",
@@ -25,7 +25,7 @@
       "aliases": [
         "PowerZone Connect Configurator"
       ],
-      "url": "https://github.com/<USER>/<REPO>"
+      "url": "https://github.com/JLDFACE/Symcon-BLAZE"
     }
   ]
 }

@@ -22,7 +22,7 @@
     {
       "type": "Configurator",
       "name": "Devices",
-      "caption": "Gefundene Ger\u00e4te",
+      "caption": "Gefundene Geräte",
       "delete": true,
       "values": []
     }
