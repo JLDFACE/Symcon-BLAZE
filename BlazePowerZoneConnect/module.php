@@ -73,8 +73,23 @@ class BlazePowerZoneConnect extends IPSModule
         $this->UpdatePollTimer();
 
         if (IPS_GetKernelRunlevel() == KR_READY) {
-            $this->EnsureParentSocket();
+            // Nicht-spammend: im ApplyChanges nur still versuchen
+            $this->EnsureParentSocket(false);
             $this->SetFastPolling(10);
+        }
+    }
+
+    // --------- UI Button Action ----------
+    // Wird über form.json via BLAZE_ConnectParent($id) aufgerufen
+    public function ConnectParent()
+    {
+        if (IPS_GetKernelRunlevel() != KR_READY) return;
+
+        if ($this->EnsureParentSocket(true)) {
+            $this->ClearErrorIfAny();
+            $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
+            $this->Subscribe();
+            $this->Poll();
         }
     }
 
@@ -82,11 +97,13 @@ class BlazePowerZoneConnect extends IPSModule
     {
         if ($Message == IM_CHANGESTATUS) {
             $status = (int)$Data[0];
+
             if ($status == 102) {
                 $this->SetValueBooleanSafe('Online', true);
                 $this->SetValueIntegerSafe('LastOKTimestamp', time());
                 $this->ClearErrorIfAny();
 
+                // Nach Connect: Topology ermitteln und Subscribe setzen
                 $this->Discover();
                 $this->Subscribe();
                 $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
@@ -103,7 +120,6 @@ class BlazePowerZoneConnect extends IPSModule
 
         $this->UpdatePollTimer();
 
-        // minimal watchdog
         $this->SendCommand("GET SYSTEM.STATUS.STATE");
 
         $top = $this->GetTopology();
@@ -123,6 +139,12 @@ class BlazePowerZoneConnect extends IPSModule
         if (!$this->Lock()) return;
 
         $parentID = $this->GetParentID();
+        if ($parentID <= 0) {
+            // versuche zu verdrahten
+            $this->EnsureParentSocket(true);
+            $parentID = $this->GetParentID();
+        }
+
         if ($parentID <= 0) {
             $this->SetError('Kein Parent (Client Socket) verbunden');
             $this->Unlock();
@@ -144,6 +166,7 @@ class BlazePowerZoneConnect extends IPSModule
             return;
         }
 
+        // --- Zonen ermitteln ---
         $zones = array();
         $zoneNames = array();
 
@@ -158,6 +181,7 @@ class BlazePowerZoneConnect extends IPSModule
             }
         }
 
+        // --- Inputs ermitteln ---
         $includeSPDIF = $this->ReadPropertyBoolean('IncludeSPDIF');
         $includeDante = $this->ReadPropertyBoolean('IncludeDante');
         $includeNoise = $this->ReadPropertyBoolean('IncludeNoise');
@@ -268,15 +292,17 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
-    // ---------- Parent Socket Handling (robust, ohne ForceParent) ----------
-    private function EnsureParentSocket()
+    // ---------- Parent Socket Handling ----------
+    // $log = true -> schreibt klare LastError Meldungen
+    private function EnsureParentSocket($log)
     {
         $host = trim($this->ReadPropertyString('Host'));
         $port = (int)$this->ReadPropertyInteger('Port');
         $open = (bool)$this->ReadPropertyBoolean('Open');
 
         if ($host === '' || $port <= 0) {
-            return;
+            if ($log) $this->SetError('Host/Port im Device nicht gesetzt (Konfiguration speichern, dann Parent verbinden)');
+            return false;
         }
 
         $parentID = $this->GetParentID();
@@ -296,18 +322,32 @@ class BlazePowerZoneConnect extends IPSModule
         if (!$isClientSocket) {
             $newID = @IPS_CreateInstance('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}');
             if ($newID <= 0) {
-                $this->SetError('Client Socket konnte nicht erstellt werden');
-                return;
+                if ($log) $this->SetError('Client Socket konnte nicht erstellt werden');
+                return false;
             }
 
+            // im Objektbaum neben dem Device ablegen
             $myParent = (int)@IPS_GetParent($this->InstanceID);
             if ($myParent > 0) @IPS_SetParent($newID, $myParent);
 
             @IPS_SetName($newID, 'Blaze Client Socket');
             @IPS_SetIdent($newID, 'BlazeClientSocket_' . $this->InstanceID);
 
+            // WICHTIG: Child (Device) -> Parent (ClientSocket)
             @IPS_ConnectInstance($this->InstanceID, $newID);
-            $parentID = $newID;
+
+            // Parent neu lesen (Symcon schreibt ConnectionID erst nach Connect)
+            $parentID = $this->GetParentID();
+            if ($parentID <= 0) {
+                // In manchen Umgebungen hilft ein ApplyChanges auf dem Device (ohne Fatal)
+                @IPS_ApplyChanges($this->InstanceID);
+                $parentID = $this->GetParentID();
+            }
+
+            if ($parentID <= 0) {
+                if ($log) $this->SetError('Client Socket erstellt, aber nicht verbunden (ConnectionID blieb 0)');
+                return false;
+            }
         }
 
         // Parent konfigurieren (nur wenn nötig)
@@ -333,7 +373,9 @@ class BlazePowerZoneConnect extends IPSModule
             @IPS_ApplyChanges($parentID);
         }
 
+        // Parent Status abonnieren
         $this->RegisterMessage($parentID, IM_CHANGESTATUS);
+        return true;
     }
 
     // ---------- Receive ----------
@@ -342,12 +384,14 @@ class BlazePowerZoneConnect extends IPSModule
         $data = json_decode($JSONString, true);
         if (!is_array($data) || !isset($data['Buffer'])) return;
 
+        // Connect/Disconnect Events
         if (isset($data['Type'])) {
             $t = (int)$data['Type'];
             if ($t == 1) {
                 $this->SetValueBooleanSafe('Online', true);
                 $this->SetValueIntegerSafe('LastOKTimestamp', time());
                 $this->ClearErrorIfAny();
+
                 $this->Discover();
                 $this->Subscribe();
                 $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
@@ -372,6 +416,8 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function HandleLine($line)
     {
+        if ($line === '') return;
+
         if ($line[0] == '#') {
             $this->SetError(substr($line, 1));
             return;
@@ -420,6 +466,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         if (preg_match('/^ZONE\-([A-H])\.PRIMARY_SRC$/', $reg, $m)) {
             $z = $m[1];
+
             $pending = $this->GetPending();
             $pendingSrc = null;
             if (isset($pending['zoneSources']) && isset($pending['zoneSources'][$z])) {
@@ -458,6 +505,7 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $rx = trim($this->ReadPropertyString('MeteringRegex'));
         if ($rx === '') return false;
+
         $ok = @preg_match('/' . $rx . '/', $reg);
         return ($ok === 1);
     }
@@ -606,7 +654,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         sort($sources);
         foreach ($sources as $sid) {
-            $label = isset($names[$sid]) && $names[$sid] !== '' ? $names[$sid] : ('Input ' . $sid);
+            $label = (isset($names[$sid]) && $names[$sid] !== '') ? $names[$sid] : ('Input ' . $sid);
             IPS_SetVariableProfileAssociation($p, (int)$sid, $label, '', -1);
         }
     }
@@ -637,7 +685,10 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $parentID = $this->GetParentID();
         if ($parentID <= 0) {
-            return false;
+            // einmal nachziehen (mit Fehlerlog)
+            $this->EnsureParentSocket(true);
+            $parentID = $this->GetParentID();
+            if ($parentID <= 0) return false;
         }
 
         // Guard: nur senden, wenn Parent wirklich "OK" ist
@@ -649,10 +700,11 @@ class BlazePowerZoneConnect extends IPSModule
         }
 
         $payload = array(
-            'DataID'  => '{C8792760-65CF-4C53-B5C7-A30FCC84FEFE}',
-            'Buffer'  => utf8_encode($cmd . "\n"),
-            'Type'    => 0
+            'DataID' => '{C8792760-65CF-4C53-B5C7-A30FCC84FEFE}',
+            'Buffer' => utf8_encode($cmd . "\n"),
+            'Type'   => 0
         );
+
         return @$this->SendDataToParent(json_encode($payload));
     }
 
@@ -662,16 +714,18 @@ class BlazePowerZoneConnect extends IPSModule
 
         $timeout = 0.25;
         $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
-        if (!$fp) return array('ok' => false, 'registers' => array());
+        if (!$fp) {
+            return array('ok' => false, 'registers' => array());
+        }
 
         stream_set_timeout($fp, 0, 250000);
-        fwrite($fp, $cmd . "\n");
+        @fwrite($fp, $cmd . "\n");
 
         $endToken = '*' . $cmd;
         $buf = '';
         $start = microtime(true);
         while (microtime(true) - $start < 0.35) {
-            $chunk = fread($fp, 8192);
+            $chunk = @fread($fp, 8192);
             if ($chunk !== false && $chunk !== '') {
                 $buf .= $chunk;
                 if (strpos($buf, $endToken) !== false) break;
@@ -681,15 +735,18 @@ class BlazePowerZoneConnect extends IPSModule
             }
         }
 
-        fclose($fp);
+        @fclose($fp);
 
         $lines = explode("\n", $buf);
         $ok = false;
+
         foreach ($lines as $line) {
             $line = trim($line);
             if ($line === '') continue;
+
             if ($line[0] == '#') return array('ok' => false, 'registers' => array());
             if ($line[0] == '*') $ok = true;
+
             if ($line[0] == '+') {
                 $spacePos = strpos($line, ' ');
                 if ($spacePos !== false) {
@@ -708,10 +765,13 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $p = $this->GetBuffer('Pending');
         if ($p === '') return array('power' => null, 'zoneSources' => array());
+
         $a = json_decode($p, true);
         if (!is_array($a)) return array('power' => null, 'zoneSources' => array());
+
         if (!isset($a['zoneSources']) || !is_array($a['zoneSources'])) $a['zoneSources'] = array();
         if (!array_key_exists('power', $a)) $a['power'] = null;
+
         return $a;
     }
 
@@ -739,7 +799,10 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $p = $this->GetPending();
         $p['zoneSources'][$zone] = (int)$src;
+
+        // stabile UI: Sollwert sofort anzeigen
         $this->SetValueIntegerSafeByIdent('ZONE_' . $zone . '_Source', (int)$src);
+
         $this->SetPending($p);
     }
 
@@ -768,7 +831,7 @@ class BlazePowerZoneConnect extends IPSModule
         $this->SetTimerInterval('PollTimer', $interval * 1000);
     }
 
-    // ---------- Helpers ----------
+    // ---------- Lock ----------
     private function Lock()
     {
         $ok = @IPS_SemaphoreEnter('BLAZE_LOCK_' . $this->InstanceID, 200);
@@ -784,12 +847,15 @@ class BlazePowerZoneConnect extends IPSModule
         @IPS_SemaphoreLeave('BLAZE_LOCK_' . $this->InstanceID);
     }
 
+    // ---------- Helpers ----------
     private function GetTopology()
     {
         $t = $this->GetBuffer('Topology');
         if ($t === '') return null;
+
         $a = json_decode($t, true);
         if (!is_array($a)) return null;
+
         return $a;
     }
 
@@ -817,12 +883,14 @@ class BlazePowerZoneConnect extends IPSModule
         if (strlen($raw) >= 2 && $raw[0] == '"' && substr($raw, -1) == '"') {
             return stripcslashes(substr($raw, 1, -1));
         }
+
         if (preg_match('/^[A-Z_]+$/', $raw)) return $raw;
 
         if (is_numeric($raw)) {
             if (strpos($raw, '.') !== false) return (float)$raw;
             return (int)$raw;
         }
+
         return $raw;
     }
 
@@ -840,8 +908,10 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $s = trim((string)$s);
         if ($s === '') return (float)$fallback;
+
         $s = str_replace(',', '.', $s);
         if (!is_numeric($s)) return (float)$fallback;
+
         return (float)$s;
     }
 
@@ -850,24 +920,33 @@ class BlazePowerZoneConnect extends IPSModule
         $msg = trim((string)$msg);
         if ($msg === '') $msg = 'Unknown error';
 
-        $cur = (string)@GetValue($this->GetIDForIdent('LastError'));
-        if ($cur !== $msg) $this->SetValueStringSafe('LastError', $msg);
+        $vid = @IPS_GetObjectIDByIdent('LastError', $this->InstanceID);
+        if ($vid > 0) {
+            $cur = (string)@GetValueString($vid);
+            if ($cur !== $msg) @SetValueString($vid, $msg);
+        }
 
-        $cnt = (int)@GetValue($this->GetIDForIdent('ErrorCounter'));
-        $this->SetValueIntegerSafe('ErrorCounter', $cnt + 1);
+        $cid = @IPS_GetObjectIDByIdent('ErrorCounter', $this->InstanceID);
+        if ($cid > 0) {
+            $cnt = (int)@GetValueInteger($cid);
+            @SetValueInteger($cid, $cnt + 1);
+        }
 
         $this->SetValueBooleanSafe('Online', false);
     }
 
     private function ClearErrorIfAny()
     {
-        $cur = (string)@GetValue($this->GetIDForIdent('LastError'));
-        if ($cur !== '') $this->SetValueStringSafe('LastError', '');
+        $vid = @IPS_GetObjectIDByIdent('LastError', $this->InstanceID);
+        if ($vid > 0) {
+            $cur = (string)@GetValueString($vid);
+            if ($cur !== '') @SetValueString($vid, '');
+        }
     }
 
     private function SetValueBooleanSafe($ident, $val)
     {
-        $vid = @$this->GetIDForIdent($ident);
+        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         if ($vid > 0) {
             $cur = (bool)@GetValueBoolean($vid);
             if ($cur !== (bool)$val) @SetValueBoolean($vid, (bool)$val);
@@ -876,7 +955,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueIntegerSafe($ident, $val)
     {
-        $vid = @$this->GetIDForIdent($ident);
+        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         if ($vid > 0) {
             $cur = (int)@GetValueInteger($vid);
             if ($cur !== (int)$val) @SetValueInteger($vid, (int)$val);
@@ -885,7 +964,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueStringSafe($ident, $val)
     {
-        $vid = @$this->GetIDForIdent($ident);
+        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         if ($vid > 0) {
             $cur = (string)@GetValueString($vid);
             if ($cur !== (string)$val) @SetValueString($vid, (string)$val);
@@ -921,7 +1000,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function GetParentID()
     {
-        $ins = IPS_GetInstance($this->InstanceID);
+        $ins = @IPS_GetInstance($this->InstanceID);
         if (!is_array($ins)) return 0;
         return (int)$ins['ConnectionID'];
     }
