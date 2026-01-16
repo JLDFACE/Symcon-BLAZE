@@ -120,6 +120,11 @@
   "actions": [
     {
       "type": "Button",
+      "caption": "Parent verbinden",
+      "onClick": "BLAZE_ConnectParent($id);"
+    },
+    {
+      "type": "Button",
       "caption": "Discover jetzt",
       "onClick": "BLAZE_Discover($id);"
     },

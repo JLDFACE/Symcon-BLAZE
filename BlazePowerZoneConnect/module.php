@@ -22,6 +22,13 @@ class BlazePowerZoneConnect extends IPSModule
         $this->RegisterPropertyBoolean('IncludeDante', true);
         $this->RegisterPropertyBoolean('IncludeNoise', true);
 
+        // Metering
+        $this->RegisterPropertyBoolean('EnableMetering', false);
+        $this->RegisterPropertyString('MeteringFreq', '5.0');
+        $this->RegisterPropertyString('MeteringRegex', '^ZONE-[A-H]\\.(LEVEL|METER|VU|RMS|PEAK)');
+        $this->RegisterPropertyInteger('MeteringMin', -80);
+        $this->RegisterPropertyInteger('MeteringMax', 0);
+
         // Polling Watchdog
         $this->RegisterPropertyInteger('PollSlow', 15);
         $this->RegisterPropertyInteger('PollFast', 5);
@@ -64,8 +71,32 @@ class BlazePowerZoneConnect extends IPSModule
         $this->UpdatePollTimer();
 
         if (IPS_GetKernelRunlevel() == KR_READY) {
-            $this->EnsureParentSocket(false);
-            $this->SetFastPolling(10);
+            if ($this->EnsureParentSocket(false)) {
+                $this->SetFastPolling(10);
+            } else {
+                // Parent Socket konnte nicht erstellt/konfiguriert werden
+                $this->SetValueBooleanSafe('Online', false);
+            }
+        }
+    }
+
+    public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
+    {
+        parent::MessageSink($TimeStamp, $SenderID, $Message, $Data);
+
+        if ($Message == IM_CHANGESTATUS) {
+            $parentID = $this->GetParentID();
+            if ($SenderID == $parentID) {
+                // Parent Socket Status hat sich geändert
+                if ($Data[0] == 102) {
+                    // Status = IS_ACTIVE (102)
+                    $this->SetValueBooleanSafe('Online', true);
+                    $this->ClearErrorIfAny();
+                } else {
+                    // Andere Status (inaktiv, Fehler, etc.)
+                    $this->SetValueBooleanSafe('Online', false);
+                }
+            }
         }
     }
 
