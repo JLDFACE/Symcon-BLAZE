@@ -5,24 +5,17 @@ class BlazePowerZoneConnect extends IPSModule
     {
         parent::Create();
 
-        // Verbindung (wird auf den Parent Client Socket übertragen)
+        // Verbindung
         $this->RegisterPropertyString('Host', '');
         $this->RegisterPropertyInteger('Port', 7621);
         $this->RegisterPropertyBoolean('Open', true);
 
-        // Subscribe / Push (als String für maximale Kompatibilität)
+        // Subscribe
         $this->RegisterPropertyBoolean('EnableSubscribe', true);
         $this->RegisterPropertyString('SubscribeFreq', '0.5');
 
-        // Zone Mute (Pflicht)
+        // Zone Mute
         $this->RegisterPropertyBoolean('EnableZoneMute', true);
-
-        // Metering (DYN) (als String für maximale Kompatibilität)
-        $this->RegisterPropertyBoolean('EnableMetering', false);
-        $this->RegisterPropertyString('MeteringFreq', '5.0');
-        $this->RegisterPropertyString('MeteringRegex', '^ZONE-[A-H]\.(LEVEL|METER|VU|RMS|PEAK)');
-        $this->RegisterPropertyInteger('MeteringMin', -80);
-        $this->RegisterPropertyInteger('MeteringMax', 0);
 
         // Input Filter
         $this->RegisterPropertyBoolean('IncludeSPDIF', false);
@@ -53,9 +46,8 @@ class BlazePowerZoneConnect extends IPSModule
         $this->MaintainVariable('PowerState', 'PowerState', VARIABLETYPE_STRING, '', 3, true);
         $this->EnableAction('Power');
 
-        // Profiles
-        $this->CreateOrUpdateProfiles();
-        $this->UpdateMeterProfile();
+        // Profile: Sources
+        $this->EnsureSourceProfile();
     }
 
     public function Destroy()
@@ -68,19 +60,16 @@ class BlazePowerZoneConnect extends IPSModule
     {
         parent::ApplyChanges();
 
-        $this->CreateOrUpdateProfiles();
-        $this->UpdateMeterProfile();
+        $this->EnsureSourceProfile();
         $this->UpdatePollTimer();
 
         if (IPS_GetKernelRunlevel() == KR_READY) {
-            // Nicht-spammend: im ApplyChanges nur still versuchen
             $this->EnsureParentSocket(false);
             $this->SetFastPolling(10);
         }
     }
 
-    // --------- UI Button Action ----------
-    // Wird über form.json via BLAZE_ConnectParent($id) aufgerufen
+    // ---------- UI Buttons ----------
     public function ConnectParent()
     {
         if (IPS_GetKernelRunlevel() != KR_READY) return;
@@ -90,26 +79,6 @@ class BlazePowerZoneConnect extends IPSModule
             $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
             $this->Subscribe();
             $this->Poll();
-        }
-    }
-
-    public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
-    {
-        if ($Message == IM_CHANGESTATUS) {
-            $status = (int)$Data[0];
-
-            if ($status == 102) {
-                $this->SetValueBooleanSafe('Online', true);
-                $this->SetValueIntegerSafe('LastOKTimestamp', time());
-                $this->ClearErrorIfAny();
-
-                // Nach Connect: Topology ermitteln und Subscribe setzen
-                $this->Discover();
-                $this->Subscribe();
-                $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
-            } else {
-                $this->SetValueBooleanSafe('Online', false);
-            }
         }
     }
 
@@ -138,13 +107,12 @@ class BlazePowerZoneConnect extends IPSModule
     {
         if (!$this->Lock()) return;
 
+        // Parent sicherstellen
         $parentID = $this->GetParentID();
         if ($parentID <= 0) {
-            // versuche zu verdrahten
             $this->EnsureParentSocket(true);
             $parentID = $this->GetParentID();
         }
-
         if ($parentID <= 0) {
             $this->SetError('Kein Parent (Client Socket) verbunden');
             $this->Unlock();
@@ -166,11 +134,11 @@ class BlazePowerZoneConnect extends IPSModule
             return;
         }
 
-        // --- Zonen ermitteln ---
+        // Zonen ermitteln
         $zones = array();
         $zoneNames = array();
-
         $candidateZones = array('A','B','C','D','E','F','G','H');
+
         foreach ($candidateZones as $z) {
             $reply = $this->DirectQuery($host, $port, "GET ZONE-" . $z . ".NAME");
             if ($reply['ok']) {
@@ -181,7 +149,7 @@ class BlazePowerZoneConnect extends IPSModule
             }
         }
 
-        // --- Inputs ermitteln ---
+        // Inputs ermitteln
         $includeSPDIF = $this->ReadPropertyBoolean('IncludeSPDIF');
         $includeDante = $this->ReadPropertyBoolean('IncludeDante');
         $includeNoise = $this->ReadPropertyBoolean('IncludeNoise');
@@ -211,7 +179,6 @@ class BlazePowerZoneConnect extends IPSModule
             'sources' => $sources,
             'sourceNames' => $sourceNames
         );
-
         $this->SetBuffer('Topology', json_encode($top));
 
         $this->RebuildZoneVariables();
@@ -237,13 +204,6 @@ class BlazePowerZoneConnect extends IPSModule
         $cmd = "SUBSCRIBE REG";
         if ($freq > 0) $cmd .= " " . $this->FormatFloat($freq);
         $this->SendCommand($cmd);
-
-        if ($this->ReadPropertyBoolean('EnableMetering')) {
-            $mf = $this->ToFloat($this->ReadPropertyString('MeteringFreq'), 5.0);
-            $mcmd = "SUBSCRIBE DYN";
-            if ($mf > 0) $mcmd .= " " . $this->FormatFloat($mf);
-            $this->SendCommand($mcmd);
-        }
 
         if ($this->ReadPropertyBoolean('EnableZoneMute')) {
             $this->SendCommand("GET ZONE-*.MUTE");
@@ -293,7 +253,6 @@ class BlazePowerZoneConnect extends IPSModule
     }
 
     // ---------- Parent Socket Handling ----------
-    // $log = true -> schreibt klare LastError Meldungen
     private function EnsureParentSocket($log)
     {
         $host = trim($this->ReadPropertyString('Host'));
@@ -318,7 +277,6 @@ class BlazePowerZoneConnect extends IPSModule
             }
         }
 
-        // Wenn kein ClientSocket verbunden ist: neu anlegen und verbinden
         if (!$isClientSocket) {
             $newID = @IPS_CreateInstance('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}');
             if ($newID <= 0) {
@@ -326,20 +284,18 @@ class BlazePowerZoneConnect extends IPSModule
                 return false;
             }
 
-            // im Objektbaum neben dem Device ablegen
             $myParent = (int)@IPS_GetParent($this->InstanceID);
             if ($myParent > 0) @IPS_SetParent($newID, $myParent);
 
             @IPS_SetName($newID, 'Blaze Client Socket');
             @IPS_SetIdent($newID, 'BlazeClientSocket_' . $this->InstanceID);
 
-            // WICHTIG: Child (Device) -> Parent (ClientSocket)
+            // Child -> Parent
             @IPS_ConnectInstance($this->InstanceID, $newID);
 
-            // Parent neu lesen (Symcon schreibt ConnectionID erst nach Connect)
+            // sicherheitshalber neu lesen
             $parentID = $this->GetParentID();
             if ($parentID <= 0) {
-                // In manchen Umgebungen hilft ein ApplyChanges auf dem Device (ohne Fatal)
                 @IPS_ApplyChanges($this->InstanceID);
                 $parentID = $this->GetParentID();
             }
@@ -373,7 +329,6 @@ class BlazePowerZoneConnect extends IPSModule
             @IPS_ApplyChanges($parentID);
         }
 
-        // Parent Status abonnieren
         $this->RegisterMessage($parentID, IM_CHANGESTATUS);
         return true;
     }
@@ -383,22 +338,6 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $data = json_decode($JSONString, true);
         if (!is_array($data) || !isset($data['Buffer'])) return;
-
-        // Connect/Disconnect Events
-        if (isset($data['Type'])) {
-            $t = (int)$data['Type'];
-            if ($t == 1) {
-                $this->SetValueBooleanSafe('Online', true);
-                $this->SetValueIntegerSafe('LastOKTimestamp', time());
-                $this->ClearErrorIfAny();
-
-                $this->Discover();
-                $this->Subscribe();
-                $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
-            } elseif ($t == 2) {
-                $this->SetValueBooleanSafe('Online', false);
-            }
-        }
 
         $chunk = utf8_decode($data['Buffer']);
         $buf = $this->GetBuffer('RxBuffer') . $chunk;
@@ -443,11 +382,6 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function ApplyRegister($reg, $val)
     {
-        if ($this->ReadPropertyBoolean('EnableMetering') && $this->IsMeterRegister($reg)) {
-            $this->ApplyMeterRegister($reg, $val);
-            return;
-        }
-
         if ($reg == 'SYSTEM.STATUS.STATE') {
             $state = (string)$val;
             $this->SetValueStringSafe('PowerState', $state);
@@ -482,8 +416,6 @@ class BlazePowerZoneConnect extends IPSModule
             } else {
                 $this->SetValueIntegerSafeByIdent($ident, (int)$val);
             }
-
-            $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
             return;
         }
 
@@ -500,67 +432,51 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
-    // ---------- Metering ----------
-    private function IsMeterRegister($reg)
+    // ---------- Variables / Profiles ----------
+    private function EnsureSourceProfile()
     {
-        $rx = trim($this->ReadPropertyString('MeteringRegex'));
-        if ($rx === '') return false;
-
-        $ok = @preg_match('/' . $rx . '/', $reg);
-        return ($ok === 1);
-    }
-
-    private function ApplyMeterRegister($reg, $val)
-    {
-        $meterCat = $this->CreateCategoryByIdent('Metering', 'Metering', 50, $this->InstanceID);
-        $ident = 'MTR_' . $this->SanitizeIdent($reg);
-
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($vid <= 0) {
-            $this->MaintainVariable($ident, $reg, VARIABLETYPE_FLOAT, $this->GetInstanceMeterProfileName(), 500, true);
-            $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-            if ($vid > 0) @IPS_SetParent($vid, $meterCat);
-        }
-
-        if ($vid > 0) {
-            $f = (float)$val;
-            $cur = (float)@GetValueFloat($vid);
-            if (abs($cur - $f) > 0.01) @SetValueFloat($vid, $f);
+        $p = $this->GetInstanceSourceProfileName();
+        if (!IPS_VariableProfileExists($p)) {
+            IPS_CreateVariableProfile($p, VARIABLETYPE_INTEGER);
+            IPS_SetVariableProfileIcon($p, 'Speaker');
         }
     }
 
-    private function UpdateMeterProfile()
+    private function UpdateSourceProfileAssociations()
     {
-        $p = $this->GetInstanceMeterProfileName();
+        $p = $this->GetInstanceSourceProfileName();
+        $this->EnsureSourceProfile();
+
+        $prof = IPS_GetVariableProfile($p);
+        if (isset($prof['Associations']) && is_array($prof['Associations'])) {
+            foreach ($prof['Associations'] as $a) {
+                IPS_SetVariableProfileAssociation($p, (int)$a['Value'], '', '', -1);
+            }
+        }
+
+        $top = $this->GetTopology();
+        if ($top == null) return;
+
+        $sources = isset($top['sources']) && is_array($top['sources']) ? $top['sources'] : array();
+        $names = isset($top['sourceNames']) && is_array($top['sourceNames']) ? $top['sourceNames'] : array();
+
+        sort($sources);
+        foreach ($sources as $sid) {
+            $label = (isset($names[$sid]) && $names[$sid] !== '') ? $names[$sid] : ('Input ' . $sid);
+            IPS_SetVariableProfileAssociation($p, (int)$sid, $label, '', -1);
+        }
+    }
+
+    private function EnsureGainProfile($p)
+    {
         if (!IPS_VariableProfileExists($p)) {
             IPS_CreateVariableProfile($p, VARIABLETYPE_FLOAT);
+            IPS_SetVariableProfileValues($p, -80.0, 20.0, 0.5);
+            IPS_SetVariableProfileText($p, '', ' dB');
+            IPS_SetVariableProfileIcon($p, 'Intensity');
         }
-
-        $min = (int)$this->ReadPropertyInteger('MeteringMin');
-        $max = (int)$this->ReadPropertyInteger('MeteringMax');
-        if ($min > $max) { $t = $min; $min = $max; $max = $t; }
-
-        IPS_SetVariableProfileValues($p, (float)$min, (float)$max, 0.1);
-        IPS_SetVariableProfileText($p, '', ' dB');
-        IPS_SetVariableProfileIcon($p, 'Intensity');
     }
 
-    private function GetInstanceMeterProfileName()
-    {
-        return 'BLAZE.' . $this->InstanceID . '.Meter';
-    }
-
-    private function SanitizeIdent($s)
-    {
-        $s = strtoupper($s);
-        $s = preg_replace('/[^A-Z0-9_]/', '_', $s);
-        $s = preg_replace('/_+/', '_', $s);
-        $s = trim($s, '_');
-        if ($s === '') $s = 'X';
-        return $s;
-    }
-
-    // ---------- Topology / Variables ----------
     private function RebuildZoneVariables()
     {
         $top = $this->GetTopology();
@@ -614,51 +530,6 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
-    // ---------- Profiles ----------
-    private function CreateOrUpdateProfiles()
-    {
-        $p = $this->GetInstanceSourceProfileName();
-        if (!IPS_VariableProfileExists($p)) {
-            IPS_CreateVariableProfile($p, VARIABLETYPE_INTEGER);
-        }
-        IPS_SetVariableProfileIcon($p, 'Speaker');
-    }
-
-    private function EnsureGainProfile($p)
-    {
-        if (!IPS_VariableProfileExists($p)) {
-            IPS_CreateVariableProfile($p, VARIABLETYPE_FLOAT);
-            IPS_SetVariableProfileValues($p, -80.0, 20.0, 0.5);
-            IPS_SetVariableProfileText($p, '', ' dB');
-            IPS_SetVariableProfileIcon($p, 'Intensity');
-        }
-    }
-
-    private function UpdateSourceProfileAssociations()
-    {
-        $p = $this->GetInstanceSourceProfileName();
-        if (!IPS_VariableProfileExists($p)) $this->CreateOrUpdateProfiles();
-
-        $prof = IPS_GetVariableProfile($p);
-        if (isset($prof['Associations']) && is_array($prof['Associations'])) {
-            foreach ($prof['Associations'] as $a) {
-                IPS_SetVariableProfileAssociation($p, (int)$a['Value'], '', '', -1);
-            }
-        }
-
-        $top = $this->GetTopology();
-        if ($top == null) return;
-
-        $sources = isset($top['sources']) && is_array($top['sources']) ? $top['sources'] : array();
-        $names = isset($top['sourceNames']) && is_array($top['sourceNames']) ? $top['sourceNames'] : array();
-
-        sort($sources);
-        foreach ($sources as $sid) {
-            $label = (isset($names[$sid]) && $names[$sid] !== '') ? $names[$sid] : ('Input ' . $sid);
-            IPS_SetVariableProfileAssociation($p, (int)$sid, $label, '', -1);
-        }
-    }
-
     private function GetInstanceSourceProfileName()
     {
         return 'BLAZE.' . $this->InstanceID . '.Sources';
@@ -685,13 +556,11 @@ class BlazePowerZoneConnect extends IPSModule
     {
         $parentID = $this->GetParentID();
         if ($parentID <= 0) {
-            // einmal nachziehen (mit Fehlerlog)
             $this->EnsureParentSocket(true);
             $parentID = $this->GetParentID();
             if ($parentID <= 0) return false;
         }
 
-        // Guard: nur senden, wenn Parent wirklich "OK" ist
         $st = @IPS_GetInstance($parentID);
         if (is_array($st) && isset($st['InstanceStatus'])) {
             if ((int)$st['InstanceStatus'] != 102) {
@@ -700,11 +569,10 @@ class BlazePowerZoneConnect extends IPSModule
         }
 
         $payload = array(
-            'DataID' => '{C8792760-65CF-4C53-B5C7-A30FCC84FEFE}',
-            'Buffer' => utf8_encode($cmd . "\n"),
-            'Type'   => 0
+            'DataID'  => '{C8792760-65CF-4C53-B5C7-A30FCC84FEFE}',
+            'Buffer'  => utf8_encode($cmd . "\n"),
+            'Type'    => 0
         );
-
         return @$this->SendDataToParent(json_encode($payload));
     }
 
@@ -714,9 +582,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         $timeout = 0.25;
         $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
-        if (!$fp) {
-            return array('ok' => false, 'registers' => array());
-        }
+        if (!$fp) return array('ok' => false, 'registers' => array());
 
         stream_set_timeout($fp, 0, 250000);
         @fwrite($fp, $cmd . "\n");
@@ -739,11 +605,9 @@ class BlazePowerZoneConnect extends IPSModule
 
         $lines = explode("\n", $buf);
         $ok = false;
-
         foreach ($lines as $line) {
             $line = trim($line);
             if ($line === '') continue;
-
             if ($line[0] == '#') return array('ok' => false, 'registers' => array());
             if ($line[0] == '*') $ok = true;
 
@@ -760,7 +624,7 @@ class BlazePowerZoneConnect extends IPSModule
         return array('ok' => $ok, 'registers' => $registers);
     }
 
-    // ---------- Pending (stabile UI) ----------
+    // ---------- Pending ----------
     private function GetPending()
     {
         $p = $this->GetBuffer('Pending');
