@@ -1,23 +1,52 @@
 {
   "elements": [
     {
-      "type": "ValidationTextBox",
-      "name": "ScanSubnet",
-      "caption": "Scan Subnetz (CIDR, z. B. 192.168.1.0/24)"
+      "type": "ExpansionPanel",
+      "caption": "Automatische Erkennung (Scan)",
+      "items": [
+        {
+          "type": "ValidationTextBox",
+          "name": "ScanSubnet",
+          "caption": "Scan Subnetz (CIDR, z. B. 192.168.1.0/24)"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "Port",
+          "caption": "Port",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      ]
     },
     {
-      "type": "NumberSpinner",
-      "name": "Port",
-      "caption": "Port",
-      "minimum": 1,
-      "maximum": 65535
+      "type": "ExpansionPanel",
+      "caption": "Manuelles Hinzufügen",
+      "items": [
+        {
+          "type": "ValidationTextBox",
+          "name": "ManualIP",
+          "caption": "IP-Adresse (z. B. 192.168.1.100)"
+        },
+        {
+          "type": "NumberSpinner",
+          "name": "ManualPort",
+          "caption": "Port",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      ]
     }
   ],
   "actions": [
     {
       "type": "Button",
-      "caption": "Scan",
+      "caption": "Scan starten",
       "onClick": "BLAZECONF_Scan($id);"
+    },
+    {
+      "type": "Button",
+      "caption": "Manuell hinzufügen",
+      "onClick": "BLAZECONF_AddManual($id);"
     },
     {
       "type": "Configurator",

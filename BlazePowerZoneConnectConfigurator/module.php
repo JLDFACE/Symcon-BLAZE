@@ -8,6 +8,10 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
         $this->RegisterPropertyString('ScanSubnet', '192.168.1.0/24');
         $this->RegisterPropertyInteger('Port', 7621);
 
+        // Manuelles Hinzufügen
+        $this->RegisterPropertyString('ManualIP', '');
+        $this->RegisterPropertyInteger('ManualPort', 7621);
+
         // robust: Scan-Ergebnisse als Attribute
         $this->RegisterAttributeString('Discovered', '[]');
     }
@@ -60,6 +64,48 @@ class BlazePowerZoneConnectConfigurator extends IPSModule
 
         $this->WriteAttributeString('Discovered', json_encode($found));
         // Hinweis: kein Live-Refresh per API; Form schließen/öffnen ist stabiler Standard.
+    }
+
+    public function AddManual()
+    {
+        $ip   = trim($this->ReadPropertyString('ManualIP'));
+        $port = (int)$this->ReadPropertyInteger('ManualPort');
+
+        if ($ip === '') {
+            echo "Fehler: IP-Adresse darf nicht leer sein.";
+            return;
+        }
+
+        // IP-Adresse validieren
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            echo "Fehler: Ungültige IP-Adresse.";
+            return;
+        }
+
+        // Gerät prüfen
+        $probe = $this->ProbeDevice($ip, $port);
+        if (!$probe['ok']) {
+            echo "Fehler: Gerät unter $ip:$port nicht erreichbar oder nicht kompatibel.";
+            return;
+        }
+
+        // Bestehende Liste laden
+        $existing = json_decode($this->ReadAttributeString('Discovered'), true);
+        if (!is_array($existing)) $existing = array();
+
+        // Prüfen, ob IP bereits in der Liste ist
+        foreach ($existing as $item) {
+            if (isset($item['address']) && $item['address'] === $ip) {
+                echo "Info: Gerät $ip ist bereits in der Liste.";
+                return;
+            }
+        }
+
+        // Gerät zur Liste hinzufügen
+        $existing[] = $this->BuildRow($ip, $port, $probe['model']);
+        $this->WriteAttributeString('Discovered', json_encode($existing));
+
+        echo "Erfolg: Gerät $ip ({$probe['model']}) wurde hinzugefügt.";
     }
 
     private function BuildRow($ip, $port, $model)
