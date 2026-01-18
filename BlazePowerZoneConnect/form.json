@@ -121,7 +121,7 @@
     {
       "type": "Button",
       "caption": "Parent verbinden",
-      "onClick": "BLAZE_ConnectParent($id);"
+      "onClick": "BLAZE_ConnectParentSocket($id);"
     },
     {
       "type": "Button",

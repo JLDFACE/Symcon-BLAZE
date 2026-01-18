@@ -101,7 +101,7 @@ class BlazePowerZoneConnect extends IPSModule
     }
 
     // ---------- UI Buttons ----------
-    public function ConnectParent()
+    public function ConnectParentSocket()
     {
         if (IPS_GetKernelRunlevel() != KR_READY) return;
 
