@@ -221,16 +221,30 @@ class BlazePowerZoneConnect extends IPSModule
 
         if ($includeMixes) {
             $misses = 0;
-            $mixIndex = 1;
             for ($iid = $mixStart; $iid <= $mixMax; $iid++) {
+                $mixIndex = $iid - $mixStart + 1;
                 $reply = $this->DirectQuery($host, $port, "GET IN-" . $iid . ".NAME");
                 $name = '';
+                $ok = false;
+
                 if ($reply['ok']) {
-                    $sources[] = $iid;
-                    $misses = 0;
+                    $ok = true;
                     if (isset($reply['registers']["IN-" . $iid . ".NAME"])) {
                         $name = trim($reply['registers']["IN-" . $iid . ".NAME"]);
                     }
+                } else {
+                    $mixReply = $this->DirectQuery($host, $port, "GET MIX-" . $mixIndex . ".NAME");
+                    if ($mixReply['ok']) {
+                        $ok = true;
+                        if (isset($mixReply['registers']["MIX-" . $mixIndex . ".NAME"])) {
+                            $name = trim($mixReply['registers']["MIX-" . $mixIndex . ".NAME"]);
+                        }
+                    }
+                }
+
+                if ($ok) {
+                    $sources[] = $iid;
+                    $misses = 0;
                 } else {
                     $misses++;
                     if ($misses >= $mixMissLimit) break;
@@ -240,7 +254,6 @@ class BlazePowerZoneConnect extends IPSModule
                 if ($name === '' || stripos($name, 'GENERATOR') !== false) {
                     $name = 'Mix ' . $mixIndex;
                 }
-                $mixIndex++;
                 $sourceNames[$iid] = $name;
             }
         }
