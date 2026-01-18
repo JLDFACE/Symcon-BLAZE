@@ -44,7 +44,7 @@ class BlazePowerZoneConnect extends IPSModule
         $this->RegisterAttributeInteger('ParentSocketID', 0);
 
         // Diagnose
-        $this->MaintainVariable('Online', 'Online', VARIABLETYPE_BOOLEAN, '~Alert', 1, true);
+        $this->MaintainVariable('Online', 'Online', VARIABLETYPE_BOOLEAN, '~Boolean', 1, true);
         $this->MaintainVariable('LastError', 'LastError', VARIABLETYPE_STRING, '', 90, true);
         $this->MaintainVariable('ErrorCounter', 'ErrorCounter', VARIABLETYPE_INTEGER, '', 91, true);
         $this->MaintainVariable('LastOKTimestamp', 'LastOKTimestamp', VARIABLETYPE_INTEGER, '~UnixTimestamp', 92, true);
