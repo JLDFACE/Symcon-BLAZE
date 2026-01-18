@@ -296,33 +296,78 @@ class BlazePowerZoneConnect extends IPSModule
         }
 
         $parentID = $this->GetParentID();
+        $clientSocketModuleID = '{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}';
+        $clientSocketIdent = 'BlazeClientSocket_' . $this->InstanceID;
 
         // Prüfen: ist Parent ein Client Socket?
         $isClientSocket = false;
         if ($parentID > 0) {
             $inst = @IPS_GetInstance($parentID);
             if (is_array($inst) && isset($inst['ModuleInfo']) && isset($inst['ModuleInfo']['ModuleID'])) {
-                if (strtoupper($inst['ModuleInfo']['ModuleID']) == strtoupper('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}')) {
+                if (strtoupper($inst['ModuleInfo']['ModuleID']) == strtoupper($clientSocketModuleID)) {
                     $isClientSocket = true;
                 }
             }
         }
 
+        $socketID = $isClientSocket ? $parentID : 0;
+
         if (!$isClientSocket) {
-            $newID = @IPS_CreateInstance('{3CFF0FD9-E306-41DB-9B5A-9D06D38576C3}');
-            if ($newID <= 0) {
-                if ($log) $this->SetError('Client Socket konnte nicht erstellt werden');
-                return false;
+            $myParent = (int)@IPS_GetParent($this->InstanceID);
+            $existingID = 0;
+            if ($myParent > 0) {
+                $existingID = (int)@IPS_GetObjectIDByIdent($clientSocketIdent, $myParent);
             }
 
-            $myParent = (int)@IPS_GetParent($this->InstanceID);
-            if ($myParent > 0) @IPS_SetParent($newID, $myParent);
+            if ($existingID > 0) {
+                $socketID = $existingID;
+            } else {
+                $socketID = @IPS_CreateInstance($clientSocketModuleID);
+                if ($socketID <= 0) {
+                    if ($log) $this->SetError('Client Socket konnte nicht erstellt werden');
+                    return false;
+                }
 
-            @IPS_SetName($newID, 'Blaze Client Socket');
-            @IPS_SetIdent($newID, 'BlazeClientSocket_' . $this->InstanceID);
+                if ($myParent > 0) @IPS_SetParent($socketID, $myParent);
 
-            // Child -> Parent
-            @IPS_ConnectInstance($this->InstanceID, $newID);
+                @IPS_SetName($socketID, 'Blaze Client Socket');
+                @IPS_SetIdent($socketID, $clientSocketIdent);
+            }
+        }
+
+        if ($socketID <= 0) {
+            if ($log) $this->SetError('Client Socket konnte nicht ermittelt werden');
+            return false;
+        }
+
+        // Parent konfigurieren (nur wenn nötig)
+        $cfg = @json_decode(@IPS_GetConfiguration($socketID), true);
+        if (!is_array($cfg)) $cfg = array();
+
+        $needApply = false;
+
+        if (!isset($cfg['Host']) || (string)$cfg['Host'] !== (string)$host) {
+            @IPS_SetProperty($socketID, 'Host', $host);
+            $needApply = true;
+        }
+        if (!isset($cfg['Port']) || (int)$cfg['Port'] !== (int)$port) {
+            @IPS_SetProperty($socketID, 'Port', $port);
+            $needApply = true;
+        }
+        if (!isset($cfg['Open']) || (bool)$cfg['Open'] !== (bool)$open) {
+            @IPS_SetProperty($socketID, 'Open', $open);
+            $needApply = true;
+        }
+
+        if ($needApply) {
+            @IPS_ApplyChanges($socketID);
+        }
+
+        if (!$isClientSocket) {
+            if (!@IPS_ConnectInstance($this->InstanceID, $socketID)) {
+                if ($log) $this->SetError('Client Socket konnte nicht verbunden werden');
+                return false;
+            }
 
             // sicherheitshalber neu lesen
             $parentID = $this->GetParentID();
@@ -330,29 +375,8 @@ class BlazePowerZoneConnect extends IPSModule
                 if ($log) $this->SetError('Client Socket erstellt, aber nicht verbunden (ConnectionID blieb 0)');
                 return false;
             }
-        }
-
-        // Parent konfigurieren (nur wenn nötig)
-        $cfg = @json_decode(@IPS_GetConfiguration($parentID), true);
-        if (!is_array($cfg)) $cfg = array();
-
-        $needApply = false;
-
-        if (!isset($cfg['Host']) || (string)$cfg['Host'] !== (string)$host) {
-            @IPS_SetProperty($parentID, 'Host', $host);
-            $needApply = true;
-        }
-        if (!isset($cfg['Port']) || (int)$cfg['Port'] !== (int)$port) {
-            @IPS_SetProperty($parentID, 'Port', $port);
-            $needApply = true;
-        }
-        if (!isset($cfg['Open']) || (bool)$cfg['Open'] !== (bool)$open) {
-            @IPS_SetProperty($parentID, 'Open', $open);
-            $needApply = true;
-        }
-
-        if ($needApply) {
-            @IPS_ApplyChanges($parentID);
+        } else {
+            $parentID = $socketID;
         }
 
         $this->RegisterMessage($parentID, IM_CHANGESTATUS);
