@@ -647,7 +647,7 @@ class BlazePowerZoneConnect extends IPSModule
         }
 
         $payload = array(
-            'DataID'  => '{C8792760-65CF-4C53-B5C7-A30FCC84FEFE}',
+            'DataID'  => '{79827379-F36E-4ADA-8A95-5F8D1DC92FA9}',
             'Buffer'  => utf8_encode($cmd . "\n"),
             'Type'    => 0
         );
