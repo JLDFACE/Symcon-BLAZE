@@ -580,30 +580,46 @@ class BlazePowerZoneConnect extends IPSModule
 
                 $srcIdent = 'ZONE_' . $z . '_Source';
                 $srcProfile = $this->GetInstanceSourceProfileName();
-                $this->MaintainVariable($srcIdent, 'Quelle (' . $zoneLabel . ')', VARIABLETYPE_INTEGER, $srcProfile, 1, true);
+                $this->MoveZoneVariableToRootIfNeeded($srcIdent, $zoneCat);
+                $this->MaintainVariable($srcIdent, 'Quelle', VARIABLETYPE_INTEGER, $srcProfile, 1, true);
                 $this->EnableAction($srcIdent);
-                @IPS_SetParent($this->GetIDForIdent($srcIdent), $zoneCat);
+                $srcVarID = $this->GetIDForIdent($srcIdent);
+                @IPS_SetHidden($srcVarID, true);
+                $this->CreateLinkByIdent('LINK_' . $srcIdent, 'Quelle', $srcVarID, $zoneCat, 1);
 
                 $gainIdent = 'ZONE_' . $z . '_Gain';
                 $gainProfile = $this->GetInstanceGainProfileName($z);
                 $this->EnsureGainProfile($gainProfile);
-                $this->MaintainVariable($gainIdent, 'Lautstärke (dB) (' . $zoneLabel . ')', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
+                $this->MoveZoneVariableToRootIfNeeded($gainIdent, $zoneCat);
+                $this->MaintainVariable($gainIdent, 'Lautstärke (dB)', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
                 $this->EnableAction($gainIdent);
-                @IPS_SetParent($this->GetIDForIdent($gainIdent), $zoneCat);
+                $gainVarID = $this->GetIDForIdent($gainIdent);
+                @IPS_SetHidden($gainVarID, true);
+                $this->CreateLinkByIdent('LINK_' . $gainIdent, 'Lautstärke (dB)', $gainVarID, $zoneCat, 2);
 
                 if ($this->ReadPropertyBoolean('EnableZoneMute')) {
                     $muteIdent = 'ZONE_' . $z . '_Mute';
-                    $this->MaintainVariable($muteIdent, 'Mute (' . $zoneLabel . ')', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
+                    $this->MoveZoneVariableToRootIfNeeded($muteIdent, $zoneCat);
+                    $this->MaintainVariable($muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
                     $this->EnableAction($muteIdent);
-                    @IPS_SetParent($this->GetIDForIdent($muteIdent), $zoneCat);
+                    $muteVarID = $this->GetIDForIdent($muteIdent);
+                    @IPS_SetHidden($muteVarID, true);
+                    $this->CreateLinkByIdent('LINK_' . $muteIdent, 'Mute', $muteVarID, $zoneCat, 3);
                 } else {
                     $this->MaintainVariable('ZONE_' . $z . '_Mute', '', VARIABLETYPE_BOOLEAN, '', 0, false);
+                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Mute', $zoneCat);
                 }
 
             } else {
                 $this->MaintainVariable('ZONE_' . $z . '_Source', '', VARIABLETYPE_INTEGER, '', 0, false);
                 $this->MaintainVariable('ZONE_' . $z . '_Gain', '', VARIABLETYPE_FLOAT, '', 0, false);
                 $this->MaintainVariable('ZONE_' . $z . '_Mute', '', VARIABLETYPE_BOOLEAN, '', 0, false);
+                $zoneCat = @IPS_GetObjectIDByIdent($zoneCatIdent, $zonesCat);
+                if ($zoneCat > 0) {
+                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Source', $zoneCat);
+                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Gain', $zoneCat);
+                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Mute', $zoneCat);
+                }
             }
         }
     }
@@ -816,6 +832,53 @@ class BlazePowerZoneConnect extends IPSModule
         IPS_SetName($id, $name);
         IPS_SetPosition($id, (int)$pos);
         return $id;
+    }
+
+    private function CreateLinkByIdent($ident, $name, $targetID, $parent, $pos)
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $parent);
+        if ($id > 0) {
+            @IPS_SetName($id, $name);
+            @IPS_SetPosition($id, (int)$pos);
+            @IPS_SetLinkTargetID($id, (int)$targetID);
+            return $id;
+        }
+
+        $id = IPS_CreateLink();
+        IPS_SetParent($id, $parent);
+        IPS_SetIdent($id, $ident);
+        IPS_SetName($id, $name);
+        IPS_SetPosition($id, (int)$pos);
+        IPS_SetLinkTargetID($id, (int)$targetID);
+        return $id;
+    }
+
+    private function DeleteObjectByIdent($ident, $parent)
+    {
+        $id = @IPS_GetObjectIDByIdent($ident, $parent);
+        if ($id > 0) {
+            @IPS_DeleteObject($id);
+        }
+    }
+
+    private function MoveZoneVariableToRootIfNeeded($ident, $zoneCat)
+    {
+        $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($rootID > 0) {
+            if ($zoneCat > 0) {
+                $zoneID = @IPS_GetObjectIDByIdent($ident, $zoneCat);
+                if ($zoneID > 0 && $zoneID != $rootID) {
+                    @IPS_DeleteObject($zoneID);
+                }
+            }
+            return;
+        }
+
+        if ($zoneCat <= 0) return;
+        $zoneID = @IPS_GetObjectIDByIdent($ident, $zoneCat);
+        if ($zoneID > 0) {
+            @IPS_SetParent($zoneID, $this->InstanceID);
+        }
     }
 
     private function ParseValue($raw)
