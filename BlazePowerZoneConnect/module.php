@@ -189,6 +189,8 @@ class BlazePowerZoneConnect extends IPSModule
         $includeDante = $this->ReadPropertyBoolean('IncludeDante');
         $includeNoise = $this->ReadPropertyBoolean('IncludeNoise');
         $includeMixes = $this->ReadPropertyBoolean('IncludeMixes');
+        $mixStart = 500;
+        $mixEnd = 507;
 
         $candidates = array();
         for ($i = 100; $i <= 107; $i++) $candidates[] = $i;
@@ -196,19 +198,35 @@ class BlazePowerZoneConnect extends IPSModule
         if ($includeDante) { $candidates[] = 300; $candidates[] = 301; $candidates[] = 302; $candidates[] = 303; }
         if ($includeNoise) { $candidates[] = 400; }
         if ($includeMixes) {
-            for ($i = 500; $i <= 507; $i++) $candidates[] = $i;
+            for ($i = $mixStart; $i <= $mixEnd; $i++) $candidates[] = $i;
         }
 
         $sources = array();
         $sourceNames = array();
 
         foreach ($candidates as $iid) {
+            $isMix = $includeMixes && ($iid >= $mixStart) && ($iid <= $mixEnd);
             $reply = $this->DirectQuery($host, $port, "GET IN-" . $iid . ".NAME");
+            $name = '';
+
             if ($reply['ok']) {
                 $sources[] = $iid;
                 if (isset($reply['registers']["IN-" . $iid . ".NAME"])) {
-                    $sourceNames[$iid] = $reply['registers']["IN-" . $iid . ".NAME"];
+                    $name = trim($reply['registers']["IN-" . $iid . ".NAME"]);
                 }
+            } elseif ($isMix) {
+                // Mixes are valid sources even if name lookup fails.
+                $sources[] = $iid;
+            }
+
+            if ($isMix) {
+                if ($name === '' || strtoupper($name) === 'GENERATOR' || strtoupper($name) === 'NOISE GENERATOR') {
+                    $name = 'Mix ' . ($iid - $mixStart + 1);
+                }
+            }
+
+            if ($name !== '') {
+                $sourceNames[$iid] = $name;
             }
         }
 
