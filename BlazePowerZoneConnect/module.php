@@ -384,6 +384,11 @@ class BlazePowerZoneConnect extends IPSModule
             @IPS_ApplyChanges($socketID);
         }
 
+        if ($parentID > 0 && $parentID != $socketID) {
+            @IPS_DisconnectInstance($this->InstanceID);
+            $parentID = 0;
+        }
+
         if ($parentID != $socketID) {
             if (!@IPS_ConnectInstance($this->InstanceID, $socketID)) {
                 if ($log) $this->SetError('Client Socket konnte nicht verbunden werden');
@@ -392,6 +397,10 @@ class BlazePowerZoneConnect extends IPSModule
 
             // sicherheitshalber neu lesen
             $parentID = $this->GetParentID();
+            if ($parentID <= 0) {
+                usleep(150000);
+                $parentID = $this->GetParentID();
+            }
             if ($parentID <= 0) {
                 if ($log) $this->SetError('Client Socket erstellt, aber nicht verbunden (ConnectionID blieb 0)');
                 return false;
