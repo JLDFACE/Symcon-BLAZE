@@ -856,6 +856,10 @@ class BlazePowerZoneConnect extends IPSModule
         IPS_SetPosition($varID, (int)$pos);
         IPS_SetVariableCustomProfile($varID, (string)$profile);
 
+        // Clear custom action to avoid stale script bindings, then set instance action.
+        if (function_exists('IPS_SetVariableCustomAction')) {
+            IPS_SetVariableCustomAction($varID, 0);
+        }
         $this->SetVariableActionByID($varID, $withAction);
 
         $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
