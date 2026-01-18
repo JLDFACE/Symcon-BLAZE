@@ -190,22 +190,20 @@ class BlazePowerZoneConnect extends IPSModule
         $includeNoise = $this->ReadPropertyBoolean('IncludeNoise');
         $includeMixes = $this->ReadPropertyBoolean('IncludeMixes');
         $mixStart = 500;
-        $mixEnd = 507;
+        $mixMax = 520;
+        $mixMissLimit = 3;
 
         $candidates = array();
         for ($i = 100; $i <= 107; $i++) $candidates[] = $i;
         if ($includeSPDIF) { $candidates[] = 200; $candidates[] = 201; }
         if ($includeDante) { $candidates[] = 300; $candidates[] = 301; $candidates[] = 302; $candidates[] = 303; }
         if ($includeNoise) { $candidates[] = 400; }
-        if ($includeMixes) {
-            for ($i = $mixStart; $i <= $mixEnd; $i++) $candidates[] = $i;
-        }
 
         $sources = array();
         $sourceNames = array();
 
         foreach ($candidates as $iid) {
-            $isMix = $includeMixes && ($iid >= $mixStart) && ($iid <= $mixEnd);
+            $isMix = false;
             $reply = $this->DirectQuery($host, $port, "GET IN-" . $iid . ".NAME");
             $name = '';
 
@@ -214,18 +212,33 @@ class BlazePowerZoneConnect extends IPSModule
                 if (isset($reply['registers']["IN-" . $iid . ".NAME"])) {
                     $name = trim($reply['registers']["IN-" . $iid . ".NAME"]);
                 }
-            } elseif ($isMix) {
-                // Mixes are valid sources even if name lookup fails.
-                $sources[] = $iid;
-            }
-
-            if ($isMix) {
-                if ($name === '' || stripos($name, 'GENERATOR') !== false) {
-                    $name = 'Mix ' . ($iid - $mixStart + 1);
-                }
-            }
-
             if ($name !== '') {
+                $sourceNames[$iid] = $name;
+            }
+        }
+
+        if ($includeMixes) {
+            $misses = 0;
+            $mixIndex = 1;
+            for ($iid = $mixStart; $iid <= $mixMax; $iid++) {
+                $reply = $this->DirectQuery($host, $port, "GET IN-" . $iid . ".NAME");
+                $name = '';
+                if ($reply['ok']) {
+                    $sources[] = $iid;
+                    $misses = 0;
+                    if (isset($reply['registers']["IN-" . $iid . ".NAME"])) {
+                        $name = trim($reply['registers']["IN-" . $iid . ".NAME"]);
+                    }
+                } else {
+                    $misses++;
+                    if ($misses >= $mixMissLimit) break;
+                    continue;
+                }
+
+                if ($name === '' || stripos($name, 'GENERATOR') !== false) {
+                    $name = 'Mix ' . $mixIndex;
+                }
+                $mixIndex++;
                 $sourceNames[$iid] = $name;
             }
         }
