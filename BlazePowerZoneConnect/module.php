@@ -856,9 +856,7 @@ class BlazePowerZoneConnect extends IPSModule
         IPS_SetPosition($varID, (int)$pos);
         IPS_SetVariableCustomProfile($varID, (string)$profile);
 
-        if ($withAction) {
-            IPS_SetVariableCustomAction($varID, $this->InstanceID);
-        }
+        $this->SetVariableActionByID($varID, $withAction);
 
         $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
         if ($rootID > 0 && $rootID != $varID) {
@@ -882,6 +880,16 @@ class BlazePowerZoneConnect extends IPSModule
         if ($id > 0) return $id;
 
         return $this->FindObjectIDByIdentRecursive($ident, $this->InstanceID);
+    }
+
+    private function SetVariableActionByID($varID, $enable)
+    {
+        if ($varID <= 0) return;
+
+        if (class_exists('IPS\\VariableManager') && method_exists('IPS\\VariableManager', 'setVariableAction')) {
+            IPS\VariableManager::setVariableAction((int)$varID, $enable ? $this->InstanceID : 0);
+            return;
+        }
     }
 
     private function FindObjectIDByIdentRecursive($ident, $parent)
