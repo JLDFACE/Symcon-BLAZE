@@ -580,46 +580,31 @@ class BlazePowerZoneConnect extends IPSModule
 
                 $srcIdent = 'ZONE_' . $z . '_Source';
                 $srcProfile = $this->GetInstanceSourceProfileName();
-                $this->MoveZoneVariableToRootIfNeeded($srcIdent, $zoneCat);
-                $this->MaintainVariable($srcIdent, 'Quelle', VARIABLETYPE_INTEGER, $srcProfile, 1, true);
-                $this->EnableAction($srcIdent);
-                $srcVarID = $this->GetIDForIdent($srcIdent);
-                @IPS_SetHidden($srcVarID, true);
-                $this->CreateLinkByIdent('LINK_' . $srcIdent, 'Quelle', $srcVarID, $zoneCat, 1);
+                $this->EnsureZoneVariable($zoneCat, $srcIdent, 'Quelle', VARIABLETYPE_INTEGER, $srcProfile, 1, true);
 
                 $gainIdent = 'ZONE_' . $z . '_Gain';
                 $gainProfile = $this->GetInstanceGainProfileName($z);
                 $this->EnsureGainProfile($gainProfile);
-                $this->MoveZoneVariableToRootIfNeeded($gainIdent, $zoneCat);
-                $this->MaintainVariable($gainIdent, 'Lautstärke (dB)', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
-                $this->EnableAction($gainIdent);
-                $gainVarID = $this->GetIDForIdent($gainIdent);
-                @IPS_SetHidden($gainVarID, true);
-                $this->CreateLinkByIdent('LINK_' . $gainIdent, 'Lautstärke (dB)', $gainVarID, $zoneCat, 2);
+                $this->EnsureZoneVariable($zoneCat, $gainIdent, 'Lautstärke (dB)', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
 
                 if ($this->ReadPropertyBoolean('EnableZoneMute')) {
                     $muteIdent = 'ZONE_' . $z . '_Mute';
-                    $this->MoveZoneVariableToRootIfNeeded($muteIdent, $zoneCat);
-                    $this->MaintainVariable($muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
-                    $this->EnableAction($muteIdent);
-                    $muteVarID = $this->GetIDForIdent($muteIdent);
-                    @IPS_SetHidden($muteVarID, true);
-                    $this->CreateLinkByIdent('LINK_' . $muteIdent, 'Mute', $muteVarID, $zoneCat, 3);
+                    $this->EnsureZoneVariable($zoneCat, $muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
                 } else {
-                    $this->MaintainVariable('ZONE_' . $z . '_Mute', '', VARIABLETYPE_BOOLEAN, '', 0, false);
-                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Mute', $zoneCat);
+                    $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $zoneCat);
+                    $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $this->InstanceID);
                 }
 
             } else {
-                $this->MaintainVariable('ZONE_' . $z . '_Source', '', VARIABLETYPE_INTEGER, '', 0, false);
-                $this->MaintainVariable('ZONE_' . $z . '_Gain', '', VARIABLETYPE_FLOAT, '', 0, false);
-                $this->MaintainVariable('ZONE_' . $z . '_Mute', '', VARIABLETYPE_BOOLEAN, '', 0, false);
                 $zoneCat = @IPS_GetObjectIDByIdent($zoneCatIdent, $zonesCat);
                 if ($zoneCat > 0) {
-                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Source', $zoneCat);
-                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Gain', $zoneCat);
-                    $this->DeleteObjectByIdent('LINK_ZONE_' . $z . '_Mute', $zoneCat);
+                    $this->DeleteObjectByIdent('ZONE_' . $z . '_Source', $zoneCat);
+                    $this->DeleteObjectByIdent('ZONE_' . $z . '_Gain', $zoneCat);
+                    $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $zoneCat);
                 }
+                $this->DeleteObjectByIdent('ZONE_' . $z . '_Source', $this->InstanceID);
+                $this->DeleteObjectByIdent('ZONE_' . $z . '_Gain', $this->InstanceID);
+                $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $this->InstanceID);
             }
         }
     }
@@ -834,23 +819,53 @@ class BlazePowerZoneConnect extends IPSModule
         return $id;
     }
 
-    private function CreateLinkByIdent($ident, $name, $targetID, $parent, $pos)
+    private function EnsureZoneVariable($parent, $ident, $name, $type, $profile, $pos, $withAction)
     {
-        $id = @IPS_GetObjectIDByIdent($ident, $parent);
-        if ($id > 0) {
-            @IPS_SetName($id, $name);
-            @IPS_SetPosition($id, (int)$pos);
-            @IPS_SetLinkTargetID($id, (int)$targetID);
-            return $id;
+        $varID = @IPS_GetObjectIDByIdent($ident, $parent);
+        if ($varID <= 0) {
+            $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+            if ($rootID > 0) {
+                $varID = $rootID;
+                @IPS_SetParent($varID, $parent);
+            }
         }
 
-        $id = IPS_CreateLink();
-        IPS_SetParent($id, $parent);
-        IPS_SetIdent($id, $ident);
-        IPS_SetName($id, $name);
-        IPS_SetPosition($id, (int)$pos);
-        IPS_SetLinkTargetID($id, (int)$targetID);
-        return $id;
+        if ($varID > 0) {
+            $obj = @IPS_GetObject($varID);
+            if (!is_array($obj) || (int)$obj['ObjectType'] !== OBJECTTYPE_VARIABLE) {
+                @IPS_DeleteObject($varID);
+                $varID = 0;
+            }
+        }
+
+        if ($varID > 0) {
+            $var = @IPS_GetVariable($varID);
+            if (!is_array($var) || (int)$var['VariableType'] !== (int)$type) {
+                @IPS_DeleteObject($varID);
+                $varID = 0;
+            }
+        }
+
+        if ($varID <= 0) {
+            $varID = IPS_CreateVariable($type);
+            IPS_SetParent($varID, $parent);
+            IPS_SetIdent($varID, $ident);
+        }
+
+        IPS_SetName($varID, $name);
+        IPS_SetPosition($varID, (int)$pos);
+        IPS_SetVariableProfile($varID, (string)$profile);
+
+        if ($withAction) {
+            IPS_SetVariableCustomAction($varID, $this->InstanceID);
+        }
+
+        $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($rootID > 0 && $rootID != $varID) {
+            @IPS_DeleteObject($rootID);
+        }
+
+        return $varID;
     }
 
     private function DeleteObjectByIdent($ident, $parent)
@@ -861,24 +876,36 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
-    private function MoveZoneVariableToRootIfNeeded($ident, $zoneCat)
+    private function FindVariableIDByIdent($ident)
     {
-        $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($rootID > 0) {
-            if ($zoneCat > 0) {
-                $zoneID = @IPS_GetObjectIDByIdent($ident, $zoneCat);
-                if ($zoneID > 0 && $zoneID != $rootID) {
-                    @IPS_DeleteObject($zoneID);
+        $id = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($id > 0) return $id;
+
+        return $this->FindObjectIDByIdentRecursive($ident, $this->InstanceID);
+    }
+
+    private function FindObjectIDByIdentRecursive($ident, $parent)
+    {
+        $children = @IPS_GetChildrenIDs($parent);
+        if (!is_array($children)) return 0;
+
+        foreach ($children as $childID) {
+            $obj = @IPS_GetObject($childID);
+            if (!is_array($obj)) continue;
+
+            if (isset($obj['ObjectIdent']) && (string)$obj['ObjectIdent'] === (string)$ident) {
+                if ((int)$obj['ObjectType'] === OBJECTTYPE_VARIABLE) {
+                    return $childID;
                 }
             }
-            return;
+
+            if ((int)$obj['ObjectType'] === OBJECTTYPE_CATEGORY) {
+                $found = $this->FindObjectIDByIdentRecursive($ident, $childID);
+                if ($found > 0) return $found;
+            }
         }
 
-        if ($zoneCat <= 0) return;
-        $zoneID = @IPS_GetObjectIDByIdent($ident, $zoneCat);
-        if ($zoneID > 0) {
-            @IPS_SetParent($zoneID, $this->InstanceID);
-        }
+        return 0;
     }
 
     private function ParseValue($raw)
@@ -951,7 +978,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueBooleanSafe($ident, $val)
     {
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $vid = $this->FindVariableIDByIdent($ident);
         if ($vid > 0) {
             $cur = (bool)@GetValueBoolean($vid);
             if ($cur !== (bool)$val) @SetValueBoolean($vid, (bool)$val);
@@ -960,7 +987,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueIntegerSafe($ident, $val)
     {
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $vid = $this->FindVariableIDByIdent($ident);
         if ($vid > 0) {
             $cur = (int)@GetValueInteger($vid);
             if ($cur !== (int)$val) @SetValueInteger($vid, (int)$val);
@@ -969,7 +996,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueStringSafe($ident, $val)
     {
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $vid = $this->FindVariableIDByIdent($ident);
         if ($vid > 0) {
             $cur = (string)@GetValueString($vid);
             if ($cur !== (string)$val) @SetValueString($vid, (string)$val);
@@ -978,7 +1005,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueIntegerSafeByIdent($ident, $val)
     {
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $vid = $this->FindVariableIDByIdent($ident);
         if ($vid > 0) {
             $cur = (int)@GetValueInteger($vid);
             if ($cur !== (int)$val) @SetValueInteger($vid, (int)$val);
@@ -987,7 +1014,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueFloatSafeByIdent($ident, $val)
     {
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $vid = $this->FindVariableIDByIdent($ident);
         if ($vid > 0) {
             $cur = (float)@GetValueFloat($vid);
             if (abs($cur - (float)$val) > 0.001) @SetValueFloat($vid, (float)$val);
@@ -996,7 +1023,7 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function SetValueBooleanSafeByIdent($ident, $val)
     {
-        $vid = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        $vid = $this->FindVariableIDByIdent($ident);
         if ($vid > 0) {
             $cur = (bool)@GetValueBoolean($vid);
             if ($cur !== (bool)$val) @SetValueBoolean($vid, (bool)$val);
