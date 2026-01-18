@@ -44,7 +44,7 @@ class BlazePowerZoneConnect extends IPSModule
         $this->RegisterAttributeInteger('ParentSocketID', 0);
 
         // Diagnose
-        $this->MaintainVariable('Online', 'Online', VARIABLETYPE_BOOLEAN, '~Boolean', 1, true);
+        $this->MaintainVariable('Online', 'Online', VARIABLETYPE_BOOLEAN, '~Switch', 1, true);
         $this->MaintainVariable('LastError', 'LastError', VARIABLETYPE_STRING, '', 90, true);
         $this->MaintainVariable('ErrorCounter', 'ErrorCounter', VARIABLETYPE_INTEGER, '', 91, true);
         $this->MaintainVariable('LastOKTimestamp', 'LastOKTimestamp', VARIABLETYPE_INTEGER, '~UnixTimestamp', 92, true);
@@ -571,29 +571,29 @@ class BlazePowerZoneConnect extends IPSModule
             $zoneCatIdent = 'ZONECAT_' . $z;
 
             if ($exists) {
-                $zoneName = 'Zone ' . $z;
+                $zoneLabel = 'Zone ' . $z;
                 if ($top != null && isset($top['zoneNames']) && isset($top['zoneNames'][$z]) && $top['zoneNames'][$z] !== '') {
-                    $zoneName .= ' (' . $top['zoneNames'][$z] . ')';
+                    $zoneLabel .= ' (' . $top['zoneNames'][$z] . ')';
                 }
 
-                $zoneCat = $this->CreateCategoryByIdent($zoneCatIdent, $zoneName, 100 + ord($z), $zonesCat);
+                $zoneCat = $this->CreateCategoryByIdent($zoneCatIdent, $zoneLabel, 100 + ord($z), $zonesCat);
 
                 $srcIdent = 'ZONE_' . $z . '_Source';
                 $srcProfile = $this->GetInstanceSourceProfileName();
-                $this->MaintainVariable($srcIdent, 'Quelle', VARIABLETYPE_INTEGER, $srcProfile, 1, true);
+                $this->MaintainVariable($srcIdent, 'Quelle (' . $zoneLabel . ')', VARIABLETYPE_INTEGER, $srcProfile, 1, true);
                 $this->EnableAction($srcIdent);
                 @IPS_SetParent($this->GetIDForIdent($srcIdent), $zoneCat);
 
                 $gainIdent = 'ZONE_' . $z . '_Gain';
                 $gainProfile = $this->GetInstanceGainProfileName($z);
                 $this->EnsureGainProfile($gainProfile);
-                $this->MaintainVariable($gainIdent, 'Lautstärke (dB)', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
+                $this->MaintainVariable($gainIdent, 'Lautstärke (dB) (' . $zoneLabel . ')', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
                 $this->EnableAction($gainIdent);
                 @IPS_SetParent($this->GetIDForIdent($gainIdent), $zoneCat);
 
                 if ($this->ReadPropertyBoolean('EnableZoneMute')) {
                     $muteIdent = 'ZONE_' . $z . '_Mute';
-                    $this->MaintainVariable($muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
+                    $this->MaintainVariable($muteIdent, 'Mute (' . $zoneLabel . ')', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
                     $this->EnableAction($muteIdent);
                     @IPS_SetParent($this->GetIDForIdent($muteIdent), $zoneCat);
                 } else {
