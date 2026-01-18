@@ -821,14 +821,9 @@ class BlazePowerZoneConnect extends IPSModule
 
     private function EnsureZoneVariable($parent, $ident, $name, $type, $profile, $pos, $withAction)
     {
-        $varID = @IPS_GetObjectIDByIdent($ident, $parent);
-        if ($varID <= 0) {
-            $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-            if ($rootID > 0) {
-                $varID = $rootID;
-                @IPS_SetParent($varID, $parent);
-            }
-        }
+        if ($parent <= 0) return 0;
+
+        $varID = $this->FindVariableIDByIdent($ident);
 
         if ($varID > 0) {
             $obj = @IPS_GetObject($varID);
@@ -846,27 +841,19 @@ class BlazePowerZoneConnect extends IPSModule
             }
         }
 
-        if ($varID <= 0) {
-            $varID = IPS_CreateVariable($type);
-            IPS_SetParent($varID, $parent);
-            IPS_SetIdent($varID, $ident);
+        if ($varID > 0) {
+            @IPS_SetParent($varID, $this->InstanceID);
         }
 
-        IPS_SetName($varID, $name);
-        IPS_SetPosition($varID, (int)$pos);
-        IPS_SetVariableCustomProfile($varID, (string)$profile);
+        $this->MaintainVariable($ident, $name, $type, $profile, $pos, true);
+        $this->MaintainAction($ident, $withAction);
 
-        // Clear custom action to avoid stale script bindings, then set instance action.
-        if (function_exists('IPS_SetVariableCustomAction')) {
-            IPS_SetVariableCustomAction($varID, 0);
-        }
-        $this->SetVariableActionByID($varID, $withAction);
-
-        $rootID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
-        if ($rootID > 0 && $rootID != $varID) {
-            @IPS_DeleteObject($rootID);
+        $varID = @IPS_GetObjectIDByIdent($ident, $this->InstanceID);
+        if ($varID > 0 && $parent > 0) {
+            @IPS_SetParent($varID, $parent);
         }
 
+        $this->RemoveDuplicateVariables($ident, $varID);
         return $varID;
     }
 
@@ -886,13 +873,15 @@ class BlazePowerZoneConnect extends IPSModule
         return $this->FindObjectIDByIdentRecursive($ident, $this->InstanceID);
     }
 
-    private function SetVariableActionByID($varID, $enable)
+    private function RemoveDuplicateVariables($ident, $keepID)
     {
-        if ($varID <= 0) return;
+        if ($keepID <= 0) return;
 
-        if (class_exists('IPS\\VariableManager') && method_exists('IPS\\VariableManager', 'setVariableAction')) {
-            IPS\VariableManager::setVariableAction((int)$varID, $enable ? $this->InstanceID : 0);
-            return;
+        $ids = $this->FindObjectIDsByIdentRecursive($ident, $this->InstanceID);
+        foreach ($ids as $id) {
+            if ($id != $keepID) {
+                @IPS_DeleteObject($id);
+            }
         }
     }
 
@@ -918,6 +907,30 @@ class BlazePowerZoneConnect extends IPSModule
         }
 
         return 0;
+    }
+
+    private function FindObjectIDsByIdentRecursive($ident, $parent)
+    {
+        $matches = array();
+        $children = @IPS_GetChildrenIDs($parent);
+        if (!is_array($children)) return $matches;
+
+        foreach ($children as $childID) {
+            $obj = @IPS_GetObject($childID);
+            if (!is_array($obj)) continue;
+
+            if (isset($obj['ObjectIdent']) && (string)$obj['ObjectIdent'] === (string)$ident) {
+                if ((int)$obj['ObjectType'] === OBJECTTYPE_VARIABLE) {
+                    $matches[] = $childID;
+                }
+            }
+
+            if ((int)$obj['ObjectType'] === OBJECTTYPE_CATEGORY) {
+                $matches = array_merge($matches, $this->FindObjectIDsByIdentRecursive($ident, $childID));
+            }
+        }
+
+        return $matches;
     }
 
     private function ParseValue($raw)
