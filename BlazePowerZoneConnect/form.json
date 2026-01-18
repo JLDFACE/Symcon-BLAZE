@@ -89,6 +89,11 @@
           "type": "CheckBox",
           "name": "IncludeNoise",
           "caption": "Noise Generator berücksichtigen"
+        },
+        {
+          "type": "CheckBox",
+          "name": "IncludeMixes",
+          "caption": "Mixes berücksichtigen"
         }
       ]
     },

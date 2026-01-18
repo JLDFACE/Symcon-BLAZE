@@ -21,6 +21,7 @@ class BlazePowerZoneConnect extends IPSModule
         $this->RegisterPropertyBoolean('IncludeSPDIF', false);
         $this->RegisterPropertyBoolean('IncludeDante', true);
         $this->RegisterPropertyBoolean('IncludeNoise', true);
+        $this->RegisterPropertyBoolean('IncludeMixes', false);
 
         // Metering
         $this->RegisterPropertyBoolean('EnableMetering', false);
@@ -51,11 +52,11 @@ class BlazePowerZoneConnect extends IPSModule
 
         // Power
         $this->MaintainVariable('Power', 'Power', VARIABLETYPE_BOOLEAN, '~Switch', 2, true);
-        $this->MaintainVariable('PowerState', 'PowerState', VARIABLETYPE_STRING, '', 3, true);
         $this->EnableAction('Power');
 
-        // Profile: Sources
+        // Profile: Sources / Mute
         $this->EnsureSourceProfile();
+        $this->EnsureMuteProfile($this->GetInstanceMuteProfileName());
     }
 
     public function Destroy()
@@ -69,7 +70,9 @@ class BlazePowerZoneConnect extends IPSModule
         parent::ApplyChanges();
 
         $this->EnsureSourceProfile();
+        $this->EnsureMuteProfile($this->GetInstanceMuteProfileName());
         $this->UpdatePollTimer();
+        $this->MaintainVariable('PowerState', '', VARIABLETYPE_STRING, '', 0, false);
 
         if (IPS_GetKernelRunlevel() == KR_READY) {
             if ($this->EnsureParentSocket(false)) {
@@ -185,12 +188,16 @@ class BlazePowerZoneConnect extends IPSModule
         $includeSPDIF = $this->ReadPropertyBoolean('IncludeSPDIF');
         $includeDante = $this->ReadPropertyBoolean('IncludeDante');
         $includeNoise = $this->ReadPropertyBoolean('IncludeNoise');
+        $includeMixes = $this->ReadPropertyBoolean('IncludeMixes');
 
         $candidates = array();
         for ($i = 100; $i <= 107; $i++) $candidates[] = $i;
         if ($includeSPDIF) { $candidates[] = 200; $candidates[] = 201; }
         if ($includeDante) { $candidates[] = 300; $candidates[] = 301; $candidates[] = 302; $candidates[] = 303; }
         if ($includeNoise) { $candidates[] = 400; }
+        if ($includeMixes) {
+            for ($i = 500; $i <= 507; $i++) $candidates[] = $i;
+        }
 
         $sources = array();
         $sourceNames = array();
@@ -462,8 +469,6 @@ class BlazePowerZoneConnect extends IPSModule
     {
         if ($reg == 'SYSTEM.STATUS.STATE') {
             $state = (string)$val;
-            $this->SetValueStringSafe('PowerState', $state);
-
             if ($state == 'ON') {
                 $this->SetValueBooleanSafe('Power', true);
                 $this->ClearPendingPower();
@@ -517,6 +522,15 @@ class BlazePowerZoneConnect extends IPSModule
         if (!IPS_VariableProfileExists($p)) {
             IPS_CreateVariableProfile($p, VARIABLETYPE_INTEGER);
             IPS_SetVariableProfileIcon($p, 'Speaker');
+        }
+    }
+
+    private function EnsureMuteProfile($p)
+    {
+        if (!IPS_VariableProfileExists($p)) {
+            IPS_CreateVariableProfile($p, VARIABLETYPE_BOOLEAN);
+            IPS_SetVariableProfileAssociation($p, 0, 'Unmute', '', 0x00FF00);
+            IPS_SetVariableProfileAssociation($p, 1, 'Mute', '', 0xFF0000);
         }
     }
 
@@ -589,7 +603,9 @@ class BlazePowerZoneConnect extends IPSModule
 
                 if ($this->ReadPropertyBoolean('EnableZoneMute')) {
                     $muteIdent = 'ZONE_' . $z . '_Mute';
-                    $this->EnsureZoneVariable($zoneCat, $muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, '~Switch', 3, true);
+                    $muteProfile = $this->GetInstanceMuteProfileName();
+                    $this->EnsureMuteProfile($muteProfile);
+                    $this->EnsureZoneVariable($zoneCat, $muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, $muteProfile, 3, true);
                 } else {
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $zoneCat);
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $this->InstanceID);
@@ -612,6 +628,11 @@ class BlazePowerZoneConnect extends IPSModule
     private function GetInstanceSourceProfileName()
     {
         return 'BLAZE.' . $this->InstanceID . '.Sources';
+    }
+
+    private function GetInstanceMuteProfileName()
+    {
+        return 'BLAZE.' . $this->InstanceID . '.Mute';
     }
 
     private function GetInstanceGainProfileName($zone)
