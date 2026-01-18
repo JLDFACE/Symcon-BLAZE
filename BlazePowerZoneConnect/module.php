@@ -212,6 +212,8 @@ class BlazePowerZoneConnect extends IPSModule
                 if (isset($reply['registers']["IN-" . $iid . ".NAME"])) {
                     $name = trim($reply['registers']["IN-" . $iid . ".NAME"]);
                 }
+            }
+
             if ($name !== '') {
                 $sourceNames[$iid] = $name;
             }
