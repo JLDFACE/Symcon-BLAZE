@@ -220,7 +220,7 @@ class BlazePowerZoneConnect extends IPSModule
             }
 
             if ($isMix) {
-                if ($name === '' || strtoupper($name) === 'GENERATOR' || strtoupper($name) === 'NOISE GENERATOR') {
+                if ($name === '' || stripos($name, 'GENERATOR') !== false) {
                     $name = 'Mix ' . ($iid - $mixStart + 1);
                 }
             }
@@ -557,18 +557,20 @@ class BlazePowerZoneConnect extends IPSModule
         $p = $this->GetInstanceSourceProfileName();
         $this->EnsureSourceProfile();
 
+        $top = $this->GetTopology();
+        if ($top == null) return;
+
+        $sources = isset($top['sources']) && is_array($top['sources']) ? $top['sources'] : array();
+        $names = isset($top['sourceNames']) && is_array($top['sourceNames']) ? $top['sourceNames'] : array();
+
+        if (count($sources) === 0) return;
+
         $prof = IPS_GetVariableProfile($p);
         if (isset($prof['Associations']) && is_array($prof['Associations'])) {
             foreach ($prof['Associations'] as $a) {
                 IPS_SetVariableProfileAssociation($p, (int)$a['Value'], '', '', -1);
             }
         }
-
-        $top = $this->GetTopology();
-        if ($top == null) return;
-
-        $sources = isset($top['sources']) && is_array($top['sources']) ? $top['sources'] : array();
-        $names = isset($top['sourceNames']) && is_array($top['sourceNames']) ? $top['sourceNames'] : array();
 
         sort($sources);
         foreach ($sources as $sid) {
