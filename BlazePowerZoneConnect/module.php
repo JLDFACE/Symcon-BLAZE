@@ -470,7 +470,7 @@ class BlazePowerZoneConnect extends IPSModule
         $data = json_decode($JSONString, true);
         if (!is_array($data) || !isset($data['Buffer'])) return;
 
-        $chunk = utf8_decode($data['Buffer']);
+        $chunk = $data['Buffer'];
         $buf = $this->GetBuffer('RxBuffer') . $chunk;
 
         $lines = explode("\n", $buf);
@@ -718,7 +718,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         $payload = array(
             'DataID'  => '{79827379-F36E-4ADA-8A95-5F8D1DC92FA9}',
-            'Buffer'  => utf8_encode($cmd . "\n"),
+            'Buffer'  => $cmd . "\n",
             'Type'    => 0
         );
         return @$this->SendDataToParent(json_encode($payload));

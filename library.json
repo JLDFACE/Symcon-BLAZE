@@ -6,6 +6,9 @@
   "version": "1.2.0",
   "build": 120,
   "date": 20260110,
+  "compatibility": {
+    "version": "7.0"
+  },
   "modules": [
     {
       "id": "{B4D9D0D1-7A92-4EBA-A9AF-1C1E29721B62}",
