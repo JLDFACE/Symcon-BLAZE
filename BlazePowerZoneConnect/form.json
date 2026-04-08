@@ -99,6 +99,48 @@
     },
     {
       "type": "ExpansionPanel",
+      "caption": "KNX Dimm relativ (optional)",
+      "items": [
+        {
+          "type": "Label",
+          "caption": "Pro Zone kann ein KNX-Dimmer (relativ) konfiguriert werden. Richtung = Boolean-Variable (true=hoch, false=runter), Bewegen = Integer-Variable (1=Start, 0=Stop)."
+        },
+        { "type": "Label", "caption": "--- Zone A ---" },
+        { "type": "SelectVariable", "caption": "Zone A Richtung (Boolean)", "name": "KnxZoneADirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone A Bewegen (Integer)", "name": "KnxZoneAMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone A Schrittgröße (%)", "name": "KnxZoneAStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone B ---" },
+        { "type": "SelectVariable", "caption": "Zone B Richtung (Boolean)", "name": "KnxZoneBDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone B Bewegen (Integer)", "name": "KnxZoneBMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone B Schrittgröße (%)", "name": "KnxZoneBStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone C ---" },
+        { "type": "SelectVariable", "caption": "Zone C Richtung (Boolean)", "name": "KnxZoneCDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone C Bewegen (Integer)", "name": "KnxZoneCMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone C Schrittgröße (%)", "name": "KnxZoneCStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone D ---" },
+        { "type": "SelectVariable", "caption": "Zone D Richtung (Boolean)", "name": "KnxZoneDDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone D Bewegen (Integer)", "name": "KnxZoneDMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone D Schrittgröße (%)", "name": "KnxZoneDStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone E ---" },
+        { "type": "SelectVariable", "caption": "Zone E Richtung (Boolean)", "name": "KnxZoneEDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone E Bewegen (Integer)", "name": "KnxZoneEMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone E Schrittgröße (%)", "name": "KnxZoneEStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone F ---" },
+        { "type": "SelectVariable", "caption": "Zone F Richtung (Boolean)", "name": "KnxZoneFDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone F Bewegen (Integer)", "name": "KnxZoneFMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone F Schrittgröße (%)", "name": "KnxZoneFStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone G ---" },
+        { "type": "SelectVariable", "caption": "Zone G Richtung (Boolean)", "name": "KnxZoneGDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone G Bewegen (Integer)", "name": "KnxZoneGMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone G Schrittgröße (%)", "name": "KnxZoneGStepPercent", "minimum": 1, "maximum": 20 },
+        { "type": "Label", "caption": "--- Zone H ---" },
+        { "type": "SelectVariable", "caption": "Zone H Richtung (Boolean)", "name": "KnxZoneHDirectionVarID" },
+        { "type": "SelectVariable", "caption": "Zone H Bewegen (Integer)", "name": "KnxZoneHMoveVarID" },
+        { "type": "NumberSpinner", "caption": "Zone H Schrittgröße (%)", "name": "KnxZoneHStepPercent", "minimum": 1, "maximum": 20 }
+      ]
+    },
+    {
+      "type": "ExpansionPanel",
       "caption": "Polling/Watchdog",
       "items": [
         {
