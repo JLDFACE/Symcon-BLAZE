@@ -30,18 +30,27 @@ class BlazePowerZoneConnect extends IPSModule
         $this->RegisterPropertyInteger('MeteringMin', -80);
         $this->RegisterPropertyInteger('MeteringMax', 0);
 
+        // KNX Dimm relativ (pro Zone)
+        foreach (array('A','B','C','D','E','F','G','H') as $z) {
+            $this->RegisterPropertyInteger('KnxZone' . $z . 'DirectionVarID', 0);
+            $this->RegisterPropertyInteger('KnxZone' . $z . 'MoveVarID', 0);
+            $this->RegisterPropertyInteger('KnxZone' . $z . 'StepPercent', 3);
+        }
+
         // Polling Watchdog
         $this->RegisterPropertyInteger('PollSlow', 15);
         $this->RegisterPropertyInteger('PollFast', 5);
         $this->RegisterPropertyInteger('FastAfterChange', 30);
 
         $this->RegisterTimer('PollTimer', 0, 'BLAZE_Poll($_IPS["TARGET"]);');
+        $this->RegisterTimer('KnxDimTimer', 0, 'BLAZE_KnxDimStep($_IPS["TARGET"]);');
 
         // Buffers
         $this->SetBuffer('RxBuffer', '');
         $this->SetBuffer('Topology', '');
         $this->SetBuffer('Pending', '');
         $this->SetBuffer('FastUntil', '0');
+        $this->SetBuffer('KnxDimZone', '');
         $this->RegisterAttributeInteger('ParentSocketID', 0);
 
         // Diagnose
@@ -72,7 +81,24 @@ class BlazePowerZoneConnect extends IPSModule
         $this->EnsureSourceProfile();
         $this->EnsureMuteProfile($this->GetInstanceMuteProfileName());
         $this->UpdatePollTimer();
+        $this->SetTimerInterval('KnxDimTimer', 0);
         $this->MaintainVariable('PowerState', '', VARIABLETYPE_STRING, '', 0, false);
+
+        // Alte VM_UPDATE-Registrierungen entfernen und neu setzen
+        foreach ($this->GetMessageList() as $senderID => $messages) {
+            foreach ($messages as $message) {
+                if ($message == VM_UPDATE) {
+                    $this->UnregisterMessage($senderID, VM_UPDATE);
+                }
+            }
+        }
+
+        foreach (array('A','B','C','D','E','F','G','H') as $z) {
+            $moveVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'MoveVarID');
+            if ($moveVarID > 0 && IPS_VariableExists($moveVarID)) {
+                $this->RegisterMessage($moveVarID, VM_UPDATE);
+            }
+        }
 
         if (IPS_GetKernelRunlevel() == KR_READY) {
             if ($this->EnsureParentSocket(false)) {
@@ -91,14 +117,28 @@ class BlazePowerZoneConnect extends IPSModule
         if ($Message == IM_CHANGESTATUS) {
             $parentID = $this->GetParentID();
             if ($SenderID == $parentID) {
-                // Parent Socket Status hat sich geändert
                 if ($Data[0] == 102) {
-                    // Status = IS_ACTIVE (102)
                     $this->SetValueBooleanSafe('Online', true);
                     $this->ClearErrorIfAny();
                 } else {
-                    // Andere Status (inaktiv, Fehler, etc.)
                     $this->SetValueBooleanSafe('Online', false);
+                }
+            }
+        }
+
+        if ($Message == VM_UPDATE) {
+            foreach (array('A','B','C','D','E','F','G','H') as $z) {
+                $moveVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'MoveVarID');
+                if ($moveVarID > 0 && $SenderID == $moveVarID) {
+                    if ((int)GetValueInteger($moveVarID) == 1) {
+                        $this->SetBuffer('KnxDimZone', $z);
+                        $this->KnxDimStep();
+                        $this->SetTimerInterval('KnxDimTimer', 1000);
+                    } else {
+                        $this->SetTimerInterval('KnxDimTimer', 0);
+                        $this->SetBuffer('KnxDimZone', '');
+                    }
+                    return;
                 }
             }
         }
@@ -334,6 +374,47 @@ class BlazePowerZoneConnect extends IPSModule
                     return;
                 }
             }
+        }
+    }
+
+    // ---------- KNX Dimm relativ ----------
+    public function KnxDimStep()
+    {
+        $z = $this->GetBuffer('KnxDimZone');
+        if ($z === '' || strlen($z) !== 1) {
+            $this->SetTimerInterval('KnxDimTimer', 0);
+            return;
+        }
+
+        $dirVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'DirectionVarID');
+        $step     = max(1, (int)$this->ReadPropertyInteger('KnxZone' . $z . 'StepPercent'));
+        $goUp     = ($dirVarID > 0 && IPS_VariableExists($dirVarID))
+            ? GetValueBoolean($dirVarID)
+            : true;
+
+        // Gain-Bereich: -80 dB bis +20 dB = 100 dB Spanne
+        $gainIdent = 'ZONE_' . $z . '_Gain';
+        $vid = $this->FindVariableIDByIdent($gainIdent);
+        if ($vid <= 0) {
+            $this->SetTimerInterval('KnxDimTimer', 0);
+            return;
+        }
+
+        $currentGain = (float)GetValueFloat($vid);
+        $currentPercent = ($currentGain + 80.0) / 100.0 * 100.0;
+        $currentPercent = max(0, min(100, $currentPercent));
+
+        $newPercent = max(0, min(100, $currentPercent + ($goUp ? $step : -$step)));
+        $newGain = round(-80.0 + ($newPercent / 100.0) * 100.0, 1);
+
+        if (abs($newGain - $currentGain) > 0.01) {
+            $this->SendCommand("SET ZONE-" . $z . ".GAIN " . $this->FormatFloat($newGain));
+            $this->SetValueFloatSafeByIdent($gainIdent, $newGain);
+            $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
+        }
+
+        if ($newPercent <= 0 || $newPercent >= 100) {
+            $this->SetTimerInterval('KnxDimTimer', 0);
         }
     }
 
