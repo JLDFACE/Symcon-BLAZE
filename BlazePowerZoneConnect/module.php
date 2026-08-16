@@ -50,11 +50,16 @@ class BlazePowerZoneConnect extends IPSModule
 
         // Buffers
         $this->SetBuffer('RxBuffer', '');
-        $this->SetBuffer('Topology', '');
         $this->SetBuffer('Pending', '');
         $this->SetBuffer('FastUntil', '0');
         $this->SetBuffer('KnxDimZone', '');
         $this->RegisterAttributeInteger('ParentSocketID', 0);
+
+        // Topologie MUSS ein Attribut sein, kein Buffer: Poll() fragt die Zonenwerte nur ab,
+        // wenn sie bekannt ist. Als Buffer war sie nach jedem Neustart und jedem Modul-Update
+        // weg, dadurch pollte das Modul nur noch SYSTEM.STATUS.STATE - Online blieb true,
+        // LastOK lief weiter, aber Gain/Source/Mute standen still. Sah aus wie "reagiert nicht".
+        $this->RegisterAttributeString('Topology', '');
 
         // Diagnose
         $this->MaintainVariable('Online', 'Online', VARIABLETYPE_BOOLEAN, '~Switch', 1, true);
@@ -181,6 +186,7 @@ class BlazePowerZoneConnect extends IPSModule
         if (!$this->Lock()) return;
 
         $this->UpdatePollTimer();
+        $this->CheckStaleLink();
 
         $this->SendCommand("GET SYSTEM.STATUS.STATE");
 
@@ -322,7 +328,7 @@ class BlazePowerZoneConnect extends IPSModule
             'sources' => $sources,
             'sourceNames' => $sourceNames
         );
-        $this->SetBuffer('Topology', json_encode($top));
+        $this->WriteAttributeString('Topology', json_encode($top));
 
         $this->RebuildZoneVariables();
         $this->UpdateSourceProfileAssociations();
@@ -506,6 +512,39 @@ class BlazePowerZoneConnect extends IPSModule
         // Nur senden, wenn sich etwas ändert - sonst flutet jede Poll-Runde den Bus.
         if ((int)@GetValue($statusVID) === $percent) return;
         @RequestAction($statusVID, $percent);
+    }
+
+    // Der Client Socket kann auf Status 102 stehen und trotzdem tot sein - etwa wenn die
+    // Gegenstelle die Verbindung still verworfen hat oder der Verstärker unter einer neuen
+    // IP läuft. Die Online-Variable merkt davon nichts, weil sie am Socket-Status hängt und
+    // nicht an empfangenen Daten. Einziges ehrliches Signal ist LastOKTimestamp: kommt über
+    // mehrere Poll-Runden keine einzige Antwort, wird die Verbindung neu aufgebaut.
+    private function CheckStaleLink()
+    {
+        $vid = $this->FindVariableIDByIdent('LastOKTimestamp');
+        if ($vid <= 0) return;
+
+        $lastOK = (int)@GetValueInteger($vid);
+        if ($lastOK <= 0) return;
+
+        $timeout = max(60, (int)$this->ReadPropertyInteger('PollSlow') * 4);
+        $silence = time() - $lastOK;
+        if ($silence < $timeout) return;
+
+        // Höchstens einmal pro Timeout-Fenster, sonst hämmert ein wirklich totes Gerät
+        // bei jedem Poll einen Reconnect durch.
+        $lastTry = (int)$this->GetBuffer('LastReconnect');
+        if ($lastTry > 0 && (time() - $lastTry) < $timeout) return;
+        $this->SetBuffer('LastReconnect', (string)time());
+
+        $parentID = $this->GetParentID();
+        if ($parentID <= 0) return;
+
+        $this->SetError('Seit ' . $silence . ' s keine Antwort - Verbindung wird neu aufgebaut');
+        @IPS_SetProperty($parentID, 'Open', false);
+        @IPS_ApplyChanges($parentID);
+        @IPS_SetProperty($parentID, 'Open', true);
+        @IPS_ApplyChanges($parentID);
     }
 
     // ---------- Parent Socket Handling ----------
@@ -1076,7 +1115,7 @@ class BlazePowerZoneConnect extends IPSModule
     // ---------- Helpers ----------
     private function GetTopology()
     {
-        $t = $this->GetBuffer('Topology');
+        $t = (string)$this->ReadAttributeString('Topology');
         if ($t === '') return null;
 
         $a = json_decode($t, true);
