@@ -803,6 +803,10 @@ class BlazePowerZoneConnect extends IPSModule
                     VARIABLETYPE_INTEGER, '~Intensity.100', 3, true
                 );
                 $this->SyncZonePercent($z);
+
+                // Mute stand vor der Prozentvariable auf Position 3 und rutscht sonst davor.
+                $muteVID = $this->FindVariableIDByIdent('ZONE_' . $z . '_Mute');
+                if ($muteVID > 0) @IPS_SetPosition($muteVID, 4);
             }
         }
     }
@@ -811,10 +815,14 @@ class BlazePowerZoneConnect extends IPSModule
     {
         if (!IPS_VariableProfileExists($p)) {
             IPS_CreateVariableProfile($p, VARIABLETYPE_FLOAT);
-            IPS_SetVariableProfileValues($p, -80.0, 20.0, 0.5);
-            IPS_SetVariableProfileText($p, '', ' dB');
-            IPS_SetVariableProfileIcon($p, 'Intensity');
         }
+
+        // Immer setzen, nicht nur beim Anlegen: ohne Digits rundet Symcon die
+        // 0,5-dB-Schritte in der Anzeige auf ganze dB (-46,6 dB erschien als "-47 dB").
+        IPS_SetVariableProfileValues($p, -80.0, 20.0, 0.5);
+        IPS_SetVariableProfileDigits($p, 1);
+        IPS_SetVariableProfileText($p, '', ' dB');
+        IPS_SetVariableProfileIcon($p, 'Intensity');
     }
 
     private function RebuildZoneVariables()
