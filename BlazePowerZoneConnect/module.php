@@ -35,6 +35,9 @@ class BlazePowerZoneConnect extends IPSModule
             $this->RegisterPropertyInteger('KnxZone' . $z . 'DirectionVarID', 0);
             $this->RegisterPropertyInteger('KnxZone' . $z . 'MoveVarID', 0);
             $this->RegisterPropertyInteger('KnxZone' . $z . 'StepPercent', 3);
+            // KNX Ein/Aus (Taster -> Mute) und Prozent-Rückmeldung (Symcon -> Taster)
+            $this->RegisterPropertyInteger('KnxZone' . $z . 'SwitchVarID', 0);
+            $this->RegisterPropertyInteger('KnxZone' . $z . 'StatusVarID', 0);
         }
 
         // Polling Watchdog
@@ -80,6 +83,7 @@ class BlazePowerZoneConnect extends IPSModule
 
         $this->EnsureSourceProfile();
         $this->EnsureMuteProfile($this->GetInstanceMuteProfileName());
+        $this->EnsureExistingZoneVariables();
         $this->UpdatePollTimer();
         $this->SetTimerInterval('KnxDimTimer', 0);
         $this->MaintainVariable('PowerState', '', VARIABLETYPE_STRING, '', 0, false);
@@ -97,6 +101,10 @@ class BlazePowerZoneConnect extends IPSModule
             $moveVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'MoveVarID');
             if ($moveVarID > 0 && IPS_VariableExists($moveVarID)) {
                 $this->RegisterMessage($moveVarID, VM_UPDATE);
+            }
+            $switchVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'SwitchVarID');
+            if ($switchVarID > 0 && IPS_VariableExists($switchVarID)) {
+                $this->RegisterMessage($switchVarID, VM_UPDATE);
             }
         }
 
@@ -130,7 +138,9 @@ class BlazePowerZoneConnect extends IPSModule
             foreach (array('A','B','C','D','E','F','G','H') as $z) {
                 $moveVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'MoveVarID');
                 if ($moveVarID > 0 && $SenderID == $moveVarID) {
-                    if ((int)GetValueInteger($moveVarID) == 1) {
+                    // DPT 3.007 liefert die Schrittweite 1..7 (1=100%, 7=1%); 0 = Stop.
+                    // Jeder Wert ungleich 0 startet die Rampe.
+                    if ((int)GetValueInteger($moveVarID) != 0) {
                         $this->SetBuffer('KnxDimZone', $z);
                         $this->KnxDimStep();
                         $this->SetTimerInterval('KnxDimTimer', 1000);
@@ -138,6 +148,14 @@ class BlazePowerZoneConnect extends IPSModule
                         $this->SetTimerInterval('KnxDimTimer', 0);
                         $this->SetBuffer('KnxDimZone', '');
                     }
+                    return;
+                }
+
+                $switchVarID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'SwitchVarID');
+                if ($switchVarID > 0 && $SenderID == $switchVarID) {
+                    // KNX-Taster Ein/Aus -> Zone stummschalten bzw. freigeben
+                    $on = (bool)@GetValueBoolean($switchVarID);
+                    $this->RequestAction('ZONE_' . $z . '_Mute', !$on);
                     return;
                 }
             }
@@ -359,9 +377,21 @@ class BlazePowerZoneConnect extends IPSModule
                     return;
                 }
 
+                // Prozent-Ident auf dB umrechnen und an den Gain-Zweig weiterreichen (wie im Bose-Modul).
+                if ($what == 'GainPct') {
+                    $percent = max(0, min(100, (int)$Value));
+                    $this->SetValueIntegerSafeByIdent('ZONE_' . $zone . '_GainPct', $percent);
+                    $this->RequestAction('ZONE_' . $zone . '_Gain', $this->PercentToGain($percent));
+                    return;
+                }
+
                 if ($what == 'Gain') {
                     $gain = (float)$Value;
                     $this->SendCommand("SET ZONE-" . $zone . ".GAIN " . $this->FormatFloat($gain));
+                    // Sofort lokal übernehmen, sonst springt der Regler bis zur nächsten Poll-Runde zurück.
+                    $this->SetValueFloatSafeByIdent('ZONE_' . $zone . '_Gain', $gain);
+                    $this->SyncZonePercent($zone);
+                    $this->UpdateKnxZoneStatus($zone);
                     $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
                     return;
                 }
@@ -370,6 +400,7 @@ class BlazePowerZoneConnect extends IPSModule
                     $mute = (bool)$Value;
                     $this->SendCommand("SET ZONE-" . $zone . ".MUTE " . ($mute ? "1" : "0"));
                     $this->SetValueBooleanSafeByIdent('ZONE_' . $zone . '_Mute', $mute);
+                    $this->UpdateKnxZoneStatus($zone);
                     $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
                     return;
                 }
@@ -401,21 +432,80 @@ class BlazePowerZoneConnect extends IPSModule
         }
 
         $currentGain = (float)GetValueFloat($vid);
-        $currentPercent = ($currentGain + 80.0) / 100.0 * 100.0;
-        $currentPercent = max(0, min(100, $currentPercent));
+        $currentPercent = $this->GainToPercent($currentGain);
 
         $newPercent = max(0, min(100, $currentPercent + ($goUp ? $step : -$step)));
-        $newGain = round(-80.0 + ($newPercent / 100.0) * 100.0, 1);
+        $newGain = $this->PercentToGain($newPercent);
 
         if (abs($newGain - $currentGain) > 0.01) {
             $this->SendCommand("SET ZONE-" . $z . ".GAIN " . $this->FormatFloat($newGain));
             $this->SetValueFloatSafeByIdent($gainIdent, $newGain);
+            $this->SyncZonePercent($z);
             $this->SetFastPolling((int)$this->ReadPropertyInteger('FastAfterChange'));
         }
 
         if ($newPercent <= 0 || $newPercent >= 100) {
             $this->SetTimerInterval('KnxDimTimer', 0);
         }
+
+        $this->UpdateKnxZoneStatus($z);
+    }
+
+    // Gain-Bereich der Zonen: -80 dB bis +20 dB = 100 dB Spanne, linear auf 0..100 % gelegt.
+    // Beide Richtungen laufen nur über diese zwei Funktionen, damit KNX-Status,
+    // Prozentvariable und Dimmschritte garantiert dieselbe Skala benutzen.
+    private function GainToPercent($gain)
+    {
+        $percent = (int)round(((float)$gain + 80.0) / 100.0 * 100.0);
+        return max(0, min(100, $percent));
+    }
+
+    private function PercentToGain($percent)
+    {
+        $percent = max(0, min(100, (int)$percent));
+        return round(-80.0 + ($percent / 100.0) * 100.0, 1);
+    }
+
+    // Aktuellen Zonenpegel als Prozent (0..100) über den Gain-Bereich -80..+20 dB.
+    // Stummgeschaltet zählt als 0 %. Rückgabe -1, wenn die Zone keine Gain-Variable hat.
+    private function ComputeZonePercent($z)
+    {
+        $gainVID = $this->FindVariableIDByIdent('ZONE_' . $z . '_Gain');
+        if ($gainVID <= 0) return -1;
+
+        $muteVID = $this->FindVariableIDByIdent('ZONE_' . $z . '_Mute');
+        if ($muteVID > 0 && (bool)@GetValueBoolean($muteVID)) return 0;
+
+        return $this->GainToPercent((float)@GetValueFloat($gainVID));
+    }
+
+    // Prozentvariable der Zone aus dem dB-Wert nachziehen.
+    // Anders als ComputeZonePercent wird Mute hier bewusst NICHT als 0 % gewertet:
+    // die Variable ist ein Bedienelement, ihr Wert darf beim Stummschalten nicht wegspringen.
+    // Namensschema wie im Bose-Modul: dB-Ident + Suffix 'Pct', Profil ~Intensity.100.
+    private function SyncZonePercent($z)
+    {
+        $gainVID = $this->FindVariableIDByIdent('ZONE_' . $z . '_Gain');
+        if ($gainVID <= 0) return;
+
+        $this->SetValueIntegerSafeByIdent(
+            'ZONE_' . $z . '_GainPct',
+            $this->GainToPercent((float)@GetValueFloat($gainVID))
+        );
+    }
+
+    // Prozentwert auf die KNX-Status-GA schreiben (Rückmeldung an den Taster).
+    private function UpdateKnxZoneStatus($z)
+    {
+        $statusVID = (int)$this->ReadPropertyInteger('KnxZone' . $z . 'StatusVarID');
+        if ($statusVID <= 0 || !IPS_VariableExists($statusVID)) return;
+
+        $percent = $this->ComputeZonePercent($z);
+        if ($percent < 0) return;
+
+        // Nur senden, wenn sich etwas ändert - sonst flutet jede Poll-Runde den Bus.
+        if ((int)@GetValue($statusVID) === $percent) return;
+        @RequestAction($statusVID, $percent);
     }
 
     // ---------- Parent Socket Handling ----------
@@ -632,12 +722,15 @@ class BlazePowerZoneConnect extends IPSModule
         if (preg_match('/^ZONE\-([A-H])\.GAIN$/', $reg, $m)) {
             $ident = 'ZONE_' . $m[1] . '_Gain';
             $this->SetValueFloatSafeByIdent($ident, (float)$val);
+            $this->SyncZonePercent($m[1]);
+            $this->UpdateKnxZoneStatus($m[1]);
             return;
         }
 
         if ($this->ReadPropertyBoolean('EnableZoneMute') && preg_match('/^ZONE\-([A-H])\.MUTE$/', $reg, $m)) {
             $ident = 'ZONE_' . $m[1] . '_Mute';
             $this->SetValueBooleanSafeByIdent($ident, ((int)$val) == 1);
+            $this->UpdateKnxZoneStatus($m[1]);
             return;
         }
     }
@@ -688,6 +781,32 @@ class BlazePowerZoneConnect extends IPSModule
         }
     }
 
+    // Nachzieharbeit für bereits angelegte Zonen, die NICHT vom Gerät abhängen darf.
+    //
+    // Hintergrund: RebuildZoneVariables() läuft nur nach einer erfolgreichen Topologie-Antwort,
+    // und die Topologie liegt in einem Buffer, der jeden Neustart verliert. Gleichzeitig löscht
+    // Destroy() die instanzeigenen Profile - und Destroy() feuert auch bei jedem Modul-Update.
+    // Ist der Verstärker in dem Moment offline, blieben die Zonen sonst dauerhaft ohne
+    // Gain-Profil (Wert wird gar nicht mehr formatiert) und ohne Prozentvariable.
+    private function EnsureExistingZoneVariables()
+    {
+        foreach (array('A','B','C','D','E','F','G','H') as $z) {
+            $gainVID = $this->FindVariableIDByIdent('ZONE_' . $z . '_Gain');
+            if ($gainVID <= 0) continue;
+
+            $this->EnsureGainProfile($this->GetInstanceGainProfileName($z));
+
+            $zoneCat = (int)@IPS_GetParent($gainVID);
+            if ($zoneCat > 0) {
+                $this->EnsureZoneVariable(
+                    $zoneCat, 'ZONE_' . $z . '_GainPct', 'Lautstärke (%)',
+                    VARIABLETYPE_INTEGER, '~Intensity.100', 3, true
+                );
+                $this->SyncZonePercent($z);
+            }
+        }
+    }
+
     private function EnsureGainProfile($p)
     {
         if (!IPS_VariableProfileExists($p)) {
@@ -730,11 +849,15 @@ class BlazePowerZoneConnect extends IPSModule
                 $this->EnsureGainProfile($gainProfile);
                 $this->EnsureZoneVariable($zoneCat, $gainIdent, 'Lautstärke (dB)', VARIABLETYPE_FLOAT, $gainProfile, 2, true);
 
+                $pctIdent = 'ZONE_' . $z . '_GainPct';
+                $this->EnsureZoneVariable($zoneCat, $pctIdent, 'Lautstärke (%)', VARIABLETYPE_INTEGER, '~Intensity.100', 3, true);
+                $this->SyncZonePercent($z);
+
                 if ($this->ReadPropertyBoolean('EnableZoneMute')) {
                     $muteIdent = 'ZONE_' . $z . '_Mute';
                     $muteProfile = $this->GetInstanceMuteProfileName();
                     $this->EnsureMuteProfile($muteProfile);
-                    $this->EnsureZoneVariable($zoneCat, $muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, $muteProfile, 3, true);
+                    $this->EnsureZoneVariable($zoneCat, $muteIdent, 'Mute', VARIABLETYPE_BOOLEAN, $muteProfile, 4, true);
                 } else {
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $zoneCat);
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $this->InstanceID);
@@ -745,10 +868,12 @@ class BlazePowerZoneConnect extends IPSModule
                 if ($zoneCat > 0) {
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Source', $zoneCat);
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Gain', $zoneCat);
+                    $this->DeleteObjectByIdent('ZONE_' . $z . '_GainPct', $zoneCat);
                     $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $zoneCat);
                 }
                 $this->DeleteObjectByIdent('ZONE_' . $z . '_Source', $this->InstanceID);
                 $this->DeleteObjectByIdent('ZONE_' . $z . '_Gain', $this->InstanceID);
+                $this->DeleteObjectByIdent('ZONE_' . $z . '_GainPct', $this->InstanceID);
                 $this->DeleteObjectByIdent('ZONE_' . $z . '_Mute', $this->InstanceID);
             }
         }
